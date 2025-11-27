@@ -53,10 +53,18 @@ class BrowserPool:
         if Settings.HEADLESS:
             options.add_argument('--headless=new')
         
+        # Set page load strategy to "none" for faster navigation
+        # This allows us to start interacting with page before it fully loads
+        options.page_load_strategy = 'none'
+        
+        # IMPORTANT: Do NOT block images - we need them for parsing!
+        # Images (image/png, image/jpeg, image/webp) will load normally
+        
         try:
             self._driver = uc.Chrome(options=options)
-            self._driver.set_page_load_timeout(Settings.TIMEOUT * 2)
-            self._driver.implicitly_wait(5)
+            # With page_load_strategy="none", we don't need long timeout
+            self._driver.set_page_load_timeout(30)  # Fallback timeout
+            self._driver.implicitly_wait(2)  # Reduced implicit wait
             
             # Set window size explicitly
             self._driver.set_window_size(Settings.WINDOW_WIDTH, Settings.WINDOW_HEIGHT)
@@ -101,13 +109,85 @@ class BrowserPool:
         
         try:
             logger.info(f"Navigating to: {url[:80]}...")
-            driver.get(url)
-            # Reduced sleep - just wait for page to start loading
-            self._random_sleep(0.5, 1.0)  # Reduced from default 1.5-4.0
+            import time
+            start_time = time.time()
+            
+            # Navigate with page_load_strategy="none" - won't wait for full page load
+            try:
+                driver.get(url)
+            except Exception as e:
+                # With page_load_strategy="none", get() may raise exception but page still loads
+                logger.debug(f"  [Navigation] get() completed (expected with page_load_strategy='none'): {e}")
+            
+            init_time = time.time() - start_time
+            logger.info(f"  [Navigation] Navigation initiated ({init_time:.2f}s)")
+            
+            # Wait specifically for gallery image elements (what we actually need)
+            # These are the critical elements for image parsing
+            gallery_selectors = [
+                "#landingImage",  # Main hero image
+                "#imgTagWrapperId img",  # Image wrapper
+                "#altImages img",  # Gallery thumbnails
+            ]
+            
+            logger.info(f"  [Navigation] Waiting for gallery elements...")
+            wait_start = time.time()
+            
+            try:
+                wait = WebDriverWait(driver, 6)  # Max 6 seconds for gallery
+                
+                # Wait for at least one gallery element to appear
+                def gallery_ready(driver):
+                    """Check if gallery elements are present and have valid image sources."""
+                    for selector in gallery_selectors:
+                        try:
+                            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                            for elem in elements:
+                                # Check if element has valid src or data-old-hires
+                                src = elem.get_attribute('src') or elem.get_attribute('data-old-hires') or elem.get_attribute('data-src')
+                                if src and src.startswith('http') and 'data:image' not in src:
+                                    # Valid image source found
+                                    return True
+                        except:
+                            continue
+                    return False
+                
+                wait.until(gallery_ready)
+                gallery_time = time.time() - wait_start
+                logger.info(f"  [Navigation] Gallery elements ready ({gallery_time:.2f}s)")
+                
+                # Verify images have valid sources
+                valid_images = 0
+                for selector in gallery_selectors:
+                    try:
+                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                        for elem in elements:
+                            src = elem.get_attribute('src') or elem.get_attribute('data-old-hires') or elem.get_attribute('data-src')
+                            if src and src.startswith('http') and 'data:image' not in src:
+                                valid_images += 1
+                    except:
+                        pass
+                
+                logger.info(f"  [Navigation] Found {valid_images} images with valid sources")
+                
+            except TimeoutException:
+                logger.warning(f"  [Navigation] Gallery elements timeout after 6s, continuing anyway...")
+            
+            # Small delay to let images start loading
+            self._random_sleep(0.3, 0.6)
             
             # Handle soft blocks (including "Continue shopping" button)
             if self._handle_soft_block():
-                logger.info("Handled soft block, continuing...")
+                logger.info("  [Navigation] Handled soft block, continuing...")
+            
+            total_time = time.time() - start_time
+            logger.info(f"  [Navigation] Navigation complete (total: {total_time:.2f}s)")
+            
+            # Warn if navigation took too long
+            if total_time > 6:
+                logger.warning(f"  [Navigation] Navigation took {total_time:.2f}s (target: 3-6s)")
+            elif total_time < 3:
+                logger.debug(f"  [Navigation] Fast navigation: {total_time:.2f}s")
             
             return True
             
@@ -280,12 +360,14 @@ class BrowserPool:
         except Exception as e:
             logger.debug(f"Scroll failed: {e}")
     
-    def click_element(self, element) -> bool:
+    def click_element(self, element, min_delay: float = None, max_delay: float = None) -> bool:
         """
         Click element with error handling.
         
         Args:
             element: WebElement to click
+            min_delay: Minimum delay after click (default: 0.1)
+            max_delay: Maximum delay after click (default: 0.3)
             
         Returns:
             True if successful
@@ -295,7 +377,10 @@ class BrowserPool:
         try:
             self.scroll_to_element(element)
             element.click()
-            self._random_sleep()
+            # Use minimal delay for thumbnail clicks
+            min_delay = min_delay if min_delay is not None else 0.1
+            max_delay = max_delay if max_delay is not None else 0.3
+            self._random_sleep(min_delay, max_delay)
             return True
         except Exception as e:
             # Try JavaScript click as fallback

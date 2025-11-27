@@ -335,15 +335,18 @@ class DocxGenerator:
             if not img_files:
                 continue
             
-            # Sort files to ensure order (natural sort: hero1.jpg, hero2.jpg, product1.jpg, etc.)
-            import re
+            # Sort files to ensure correct numerical order (1, 2, 3, ..., 10, 11, not 1, 10, 11, 2, 3)
             def natural_sort_key(filename):
-                """Natural sort key for filenames."""
+                """Natural sort key for filenames - sort by number only."""
                 path = Path(filename)
                 name = path.stem
-                # Extract number if present
+                # Extract number if present - use only the number for sorting
                 numbers = re.findall(r'\d+', name)
-                return (name, int(numbers[0]) if numbers else 0)
+                if numbers:
+                    # Return tuple: (0, number) to ensure numbers come first, sorted numerically
+                    return (0, int(numbers[-1]))  # Use last number in case of multiple
+                # If no number, sort alphabetically
+                return (1, name)
             
             img_files.sort(key=natural_sort_key)
             
@@ -368,20 +371,84 @@ class DocxGenerator:
             # Add image
             try:
                 img_path = img_info['path']
-                self.doc.add_picture(img_path, width=Inches(4.0))
+                img_path_obj = Path(img_path)
+                
+                # Verify file exists and get info
+                if not img_path_obj.exists():
+                    raise FileNotFoundError(f"Image file not found: {img_path}")
+                
+                file_size = img_path_obj.stat().st_size
+                if file_size == 0:
+                    raise ValueError(f"Image file is empty: {img_path}")
+                
+                logger.debug(f"Adding image: {img_path_obj.name} ({file_size / 1024:.2f}KB)")
+                
+                # Try to add image - python-docx can have issues with certain image formats
+                try:
+                    # Use absolute path to avoid any path issues
+                    abs_path = str(img_path_obj.resolve())
+                    self.doc.add_picture(abs_path, width=Inches(4.0))
+                except Exception as pic_error:
+                    # Try with smaller size if first attempt fails
+                    logger.debug(f"First attempt failed ({type(pic_error).__name__}), trying smaller size: {pic_error}")
+                    try:
+                        abs_path = str(img_path_obj.resolve())
+                        self.doc.add_picture(abs_path, width=Inches(2.0))
+                        logger.debug(f"Added with smaller size")
+                    except Exception as pic_error2:
+                        # Last resort: try to load with PIL and convert if needed
+                        logger.debug(f"Second attempt failed, trying PIL conversion: {pic_error2}")
+                        try:
+                            from PIL import Image
+                            from io import BytesIO
+                            import tempfile
+                            
+                            # Open and verify image
+                            img = Image.open(abs_path)
+                            # Convert to RGB if needed (for JPEG compatibility)
+                            if img.mode in ('RGBA', 'LA', 'P'):
+                                rgb_img = Image.new('RGB', img.size, (255, 255, 255))
+                                if img.mode == 'P':
+                                    img = img.convert('RGBA')
+                                rgb_img.paste(img, mask=img.split()[-1] if img.mode in ('RGBA', 'LA') else None)
+                                img = rgb_img
+                            
+                            # Save to temporary file
+                            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
+                                img.save(tmp_file.name, 'JPEG', quality=95)
+                                tmp_path = tmp_file.name
+                            
+                            # Add converted image
+                            self.doc.add_picture(tmp_path, width=Inches(4.0))
+                            
+                            # Clean up temp file
+                            try:
+                                os.unlink(tmp_path)
+                            except:
+                                pass
+                            
+                            logger.debug(f"Added after PIL conversion")
+                        except Exception as pic_error3:
+                            raise pic_error3
                 
                 # Add filename as caption
-                filename = os.path.basename(img_path)
+                filename = img_path_obj.name
                 p = self.doc.add_paragraph()
                 p.add_run(filename).italic = True
                 
-                logger.debug(f"Added image: {filename}")
+                logger.debug(f"✓ Added image: {filename}")
                 
             except Exception as e:
-                # If image can't be loaded, add placeholder
+                # If image can't be loaded, add placeholder with detailed error
                 filename = os.path.basename(img_info['path'])
-                self.doc.add_paragraph(f"[Image could not be loaded: {filename}]")
-                logger.warning(f"Failed to add image {filename}: {e}")
+                error_msg = str(e) if e else "Unknown error"
+                error_type = type(e).__name__
+                file_exists = Path(img_path).exists() if 'img_path' in locals() else False
+                file_size = Path(img_path).stat().st_size if file_exists else 0
+                
+                self.doc.add_paragraph(f"[Image could not be loaded: {filename} - {error_type}: {error_msg}]")
+                logger.warning(f"Failed to add image {filename}: {error_type}: {error_msg}")
+                logger.debug(f"  Image path: {img_path if 'img_path' in locals() else 'N/A'}, exists: {file_exists}, size: {file_size} bytes")
         
         if all_images:
             self.doc.add_paragraph()

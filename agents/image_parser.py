@@ -303,31 +303,49 @@ class ImageParserAgent:
             try:
                 # Skip video thumbnails
                 if self._is_video_thumbnail(thumb):
-                    logger.debug(f"Skipping video thumbnail {i + 1}")
+                    logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipping video thumbnail")
                     continue
                 
                 # Check for video in class or innerHTML
                 try:
                     thumb_class = thumb.get_attribute("class") or ""
                     if "video" in thumb_class.lower():
+                        logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipping video (class contains 'video')")
                         continue
                 except:
                     pass
                 
                 # Click thumbnail
-                self.browser.click_element(thumb)
+                import time
+                click_start = time.time()
+                logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Clicking thumbnail...")
+                # Use slightly longer delay (0.2-0.4s) to avoid detection - still fast but safer
+                self.browser.click_element(thumb, min_delay=0.2, max_delay=0.4)
+                click_time = time.time() - click_start
+                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Click completed ({click_time:.2f}s)")
                 
                 # Wait for image to change (more efficient than fixed delay)
+                wait_start = time.time()
+                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Waiting for image to load...")
                 try:
-                    from selenium.webdriver.support.ui import WebDriverWait
-                    from selenium.webdriver.support import expected_conditions as EC
-                    wait = WebDriverWait(driver, 2)  # Short timeout
+                    wait = WebDriverWait(driver, 3)  # Increased timeout slightly
+                    # Get current src before waiting
+                    try:
+                        current_src = driver.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src')
+                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Current image src: {current_src[:50] if current_src else 'None'}...")
+                    except:
+                        pass
+                    
                     # Wait for image src to change or be loaded
                     wait.until(lambda d: d.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src') and 
-                               'loading' not in d.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src', '').lower())
-                except:
+                               'loading' not in (d.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src') or '').lower())
+                    wait_time = time.time() - wait_start
+                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Image loaded ({wait_time:.2f}s)")
+                except Exception as e:
                     # Fallback to small delay if wait fails
-                    self.browser._random_sleep(0.1, 0.2)
+                    wait_time = time.time() - wait_start
+                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Wait timeout ({wait_time:.2f}s), using fallback delay: {e}")
+                    self.browser._random_sleep(0.2, 0.4)
                 
                 # Get large image
                 try:
@@ -337,31 +355,40 @@ class ImageParserAgent:
                     if src:
                         # Convert to high resolution
                         url = get_high_res_url(src)
+                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Got image URL: {url[:60]}...")
                         
                         if not is_excluded_url(url) and url.startswith('http'):
                             # Check if it's hero image
                             is_hero = False
                             if i == 0:  # First image is usually hero
+                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] First image, marking as hero")
                                 is_hero = True
                             elif hero_url and url == hero_url:
+                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Matches hero URL, skipping")
                                 is_hero = True
                             elif hero_md5:
                                 try:
+                                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Checking MD5 against hero...")
                                     img_data = download_image(url)
                                     if img_data and calculate_md5(img_data) == hero_md5:
+                                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] MD5 matches hero, skipping")
                                         is_hero = True
                                 except:
                                     pass
                             
                             if not is_hero and url not in all_image_urls:
                                 all_image_urls.append(url)
-                                logger.debug(f"  Added image {len(all_image_urls)}")
+                                logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✓ Added to gallery list (total: {len(all_image_urls)})")
+                            elif is_hero:
+                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipped (hero image)")
+                            elif url in all_image_urls:
+                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipped (duplicate URL)")
                 except NoSuchElementException:
-                    logger.debug(f"Could not find large image for thumbnail {i + 1}")
+                    logger.warning(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✗ Could not find large image")
                     continue
                     
             except Exception as e:
-                logger.debug(f"Error processing thumbnail {i + 1}: {e}")
+                logger.warning(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✗ Error: {e}")
                 continue
         
         # Step 6: Close modal
@@ -379,11 +406,14 @@ class ImageParserAgent:
         for i, url in enumerate(all_image_urls, 1):
             try:
                 output_path = gallery_dir / f'product{i}.jpg'
+                logger.info(f"  [Download {i}/{len(all_image_urls)}] Downloading product{i}.jpg...")
                 if save_image_with_dedup(url, str(output_path), self.md5_cache):
                     saved_images.append(str(output_path))
-                    logger.info(f"  ✓ Saved: product{i}.jpg")
+                    logger.info(f"  [Download {i}/{len(all_image_urls)}] ✓ Saved: product{i}.jpg")
+                else:
+                    logger.debug(f"  [Download {i}/{len(all_image_urls)}] ✗ Skipped (duplicate or invalid)")
             except Exception as e:
-                logger.debug(f"  ✗ Failed: {e}")
+                logger.warning(f"  [Download {i}/{len(all_image_urls)}] ✗ Failed: {e}")
         
         logger.info(f"✓ Gallery parsing complete: {len(saved_images)} images saved")
         return saved_images
@@ -572,6 +602,8 @@ class ImageParserAgent:
         
         # Find A+ content sections - optimized search
         logger.info(f"Searching for A+ {category} sections...")
+        import time
+        search_start = time.time()
         
         # First, try specific selectors (most likely to match)
         if category == 'brand':
@@ -594,6 +626,7 @@ class ImageParserAgent:
         ]
         
         all_selectors = specific_selectors + general_selectors
+        logger.info(f"  [A+ {category}] Checking {len(all_selectors)} selectors: {', '.join(all_selectors)}")
         
         # Limit search time - if no sections found in first few selectors, exit early
         max_selector_checks = 3  # Check only first 3 selectors before giving up
@@ -601,14 +634,21 @@ class ImageParserAgent:
         
         for idx, selector in enumerate(all_selectors):
             try:
+                selector_start = time.time()
+                logger.info(f"  [A+ {category}] Checking selector {idx + 1}/{len(all_selectors)}: {selector}")
                 sections = driver.find_elements(By.CSS_SELECTOR, selector)
+                selector_time = time.time() - selector_start
                 
                 if not sections:
+                    logger.debug(f"  [A+ {category}] Selector '{selector}' found 0 sections ({selector_time:.2f}s)")
                     # If we've checked several selectors and found nothing, exit early
                     if idx >= max_selector_checks and not sections_found:
-                        logger.debug(f"No A+ {category} sections found after checking {idx + 1} selectors, skipping...")
+                        total_time = time.time() - search_start
+                        logger.info(f"  [A+ {category}] No sections found after checking {idx + 1} selectors ({total_time:.2f}s), skipping...")
                         return saved_images
                     continue
+                
+                logger.info(f"  [A+ {category}] Selector '{selector}' found {len(sections)} sections ({selector_time:.2f}s)")
                 
                 sections_found = True
                 logger.debug(f"Found {len(sections)} sections with selector: {selector}")
@@ -642,23 +682,24 @@ class ImageParserAgent:
                         logger.info(f"Found target section for {category}, extracting images...")
                         
                         # Scroll to section to trigger lazy loading
-                        logger.debug(f"Scrolling to {category} section...")
+                        logger.info(f"  [A+ {category}] Scrolling to section...")
                         self.browser.scroll_to_element(section)
                         self.browser._random_sleep(0.1, 0.2)  # Further reduced delay
+                        logger.debug(f"  [A+ {category}] Scroll complete")
                         
                         # Find all images in this section
-                        logger.debug(f"Searching for images in {category} section...")
+                        logger.info(f"  [A+ {category}] Searching for images in section...")
                         images = section.find_elements(By.TAG_NAME, 'img')
-                        logger.debug(f"Found {len(images)} img tags in section")
+                        logger.info(f"  [A+ {category}] Found {len(images)} img tags in section")
                         
                         # Also check for carousel images
                         carousel_images = []
                         try:
-                            logger.debug(f"Checking for carousel images in {category} section...")
+                            logger.info(f"  [A+ {category}] Checking for carousel images...")
                             carousel_images = self._parse_carousel_in_section(section)
-                            logger.debug(f"Found {len(carousel_images)} carousel images")
+                            logger.info(f"  [A+ {category}] Found {len(carousel_images)} carousel images")
                         except Exception as e:
-                            logger.debug(f"Carousel parsing skipped: {e}")
+                            logger.debug(f"  [A+ {category}] Carousel parsing skipped: {e}")
                         
                         all_urls = []
                         

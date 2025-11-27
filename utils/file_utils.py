@@ -203,7 +203,7 @@ def save_image_with_dedup(
             f.write(image_data)
         
         md5_cache.add(md5_hash)
-        logger.info(f"Saved image: {output_file.name}")
+        logger.debug(f"Saved image: {output_file.name} (MD5: {md5_hash[:8]}...)")
         
         # Random delay between downloads
         delay = random.uniform(
