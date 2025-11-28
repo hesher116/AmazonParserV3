@@ -112,7 +112,30 @@ class Database:
         
         if results:
             updates.append("results_json = ?")
-            params.append(json.dumps(results))
+            try:
+                # Truncate large results to prevent database errors
+                results_str = json.dumps(results, default=str)  # Use default=str for non-serializable objects
+                # SQLite TEXT limit is ~1GB, but we'll limit to 10MB for safety
+                max_size = 10 * 1024 * 1024  # 10MB
+                if len(results_str) > max_size:
+                    logger.warning(f"Results too large ({len(results_str)} bytes), truncating...")
+                    # Keep only essential summary data
+                    truncated_results = {
+                        'product_name': results.get('product_name'),
+                        'images': results.get('images', {}),
+                        'reviews_count': results.get('reviews_count', 0),
+                        'qa_count': results.get('qa_count', 0),
+                        'variants_count': results.get('variants_count', 0),
+                        'processing_time_seconds': results.get('processing_time_seconds'),
+                        'processing_time_formatted': results.get('processing_time_formatted'),
+                        'errors': results.get('errors', [])[:10]  # Keep only first 10 errors
+                    }
+                    results_str = json.dumps(truncated_results, default=str)
+                params.append(results_str)
+            except (TypeError, ValueError) as e:
+                logger.error(f"Failed to serialize results to JSON: {e}")
+                # Save minimal error info instead
+                params.append(json.dumps({'error': 'Failed to serialize results', 'error_type': str(type(e).__name__)}))
         
         if error_message:
             updates.append("error_message = ?")
@@ -185,7 +208,11 @@ class Database:
         """
         task = self.get_task(task_id)
         if task and task.get('results_json'):
-            return json.loads(task['results_json'])
+            try:
+                return json.loads(task['results_json'])
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Failed to parse results JSON for task {task_id}: {e}")
+                return None
         return None
     
     def _row_to_dict(self, row: sqlite3.Row) -> Dict:
@@ -196,7 +223,8 @@ class Database:
         if result.get('results_json'):
             try:
                 result['results'] = json.loads(result['results_json'])
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Failed to parse results JSON for task {result.get('id')}: {e}")
                 result['results'] = None
         else:
             result['results'] = None

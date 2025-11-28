@@ -4,6 +4,7 @@ import time
 import traceback
 from typing import Dict, List, Optional, Callable
 from pathlib import Path
+from collections import defaultdict
 
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
@@ -11,7 +12,11 @@ from selenium.common.exceptions import NoSuchElementException
 from core.browser_pool import BrowserPool
 from core.database import Database
 from core.docx_generator import DocxGenerator
-from agents.image_parser import ImageParserAgent
+from agents.hero_parser import HeroParser
+from agents.gallery_parser import GalleryParser
+from agents.aplus_product_parser import APlusProductParser
+from agents.aplus_brand_parser import APlusBrandParser
+from agents.aplus_manufacturer_parser import APlusManufacturerParser
 from agents.text_parser import TextParserAgent
 from agents.reviews_parser import ReviewsParserAgent
 from agents.qa_parser import QAParserAgent
@@ -33,6 +38,15 @@ class Coordinator:
         self.results: Dict = {}
         self.output_dir: Optional[str] = None
         self.progress_callback: Optional[Callable] = None
+        # Selector cache for A+ parsers
+        from collections import defaultdict
+        self.selector_cache: Dict[str, List[str]] = defaultdict(list) if Settings.SELECTOR_CACHE_ENABLED else {}
+        # Performance metrics
+        self.performance_metrics: Dict[str, float] = {}
+        # Selector cache for A+ parsers
+        self.selector_cache: Dict[str, List[str]] = defaultdict(list) if Settings.SELECTOR_CACHE_ENABLED else {}
+        # Performance metrics
+        self.performance_metrics: Dict[str, float] = {}
     
     def run_parsing(
         self,
@@ -64,7 +78,8 @@ class Coordinator:
             'variants': {},
             'validation': {},
             'errors': [],
-            'output_dir': None
+            'output_dir': None,
+            'start_time': time.time()  # Track start time for processing duration
         }
         
         try:
@@ -151,10 +166,17 @@ class Coordinator:
             # Run selected agents
             current_progress = 25
             
-            if config.get('images', False):
+            # Parse images based on individual checkboxes
+            if any([
+                config.get('images_hero', False),
+                config.get('images_gallery', False),
+                config.get('images_aplus_product', False),
+                config.get('images_aplus_brand', False),
+                config.get('images_aplus_manufacturer', False),
+            ]):
                 self._update_progress('Parsing images...', current_progress)
                 try:
-                    self._run_image_agent()
+                    self._run_image_agents(config)
                 except Exception as e:
                     logger.error(f"Image parsing failed: {e}")
                     self.results['errors'].append(f"Image parsing: {str(e)}")
@@ -177,9 +199,22 @@ class Coordinator:
                 self._run_validation()
             
             # Generate DOCX (generate even if only images are selected)
-            has_images = config.get('images', False) and self.results.get('images', {}).get('total_images', 0) > 0
+            has_images = any([
+                config.get('images_hero', False),
+                config.get('images_gallery', False),
+                config.get('images_aplus_product', False),
+                config.get('images_aplus_brand', False),
+                config.get('images_aplus_manufacturer', False),
+            ])
+            images_data = self.results.get('images', {})
+            has_any_images = images_data.get('total_images', 0) > 0 or \
+                           len(images_data.get('hero', [])) > 0 or \
+                           len(images_data.get('gallery', [])) > 0 or \
+                           len(images_data.get('aplus_product', [])) > 0 or \
+                           len(images_data.get('aplus_brand', [])) > 0 or \
+                           len(images_data.get('aplus_manufacturer', [])) > 0
             has_text = self.results.get('text', {}).get('title')
-            if has_images or has_text:
+            if (has_images and has_any_images) or has_text:
                 self._update_progress('Generating document...', 90 if has_other_data else 80)
                 self._generate_docx()
             
@@ -211,6 +246,12 @@ class Coordinator:
         logger.info(f"Progress: {percent}% - {message}")
         if self.progress_callback:
             self.progress_callback(message, percent)
+    
+    def _log_performance(self, category: str, duration: float):
+        """Log performance metrics for analysis."""
+        if Settings.PERFORMANCE_LOGGING:
+            self.performance_metrics[category] = duration
+            logger.info(f"⏱️  {category}: {duration:.2f}s")
     
     def _run_with_retry(
         self, 
@@ -307,10 +348,58 @@ class Coordinator:
         text_agent = TextParserAgent(self.browser_pool)
         results['text'] = self._run_with_retry(text_agent.parse)
         
-        # Images
-        if config.get('images', False):
-            image_agent = ImageParserAgent(self.browser_pool)
-            results['images'] = self._run_with_retry(image_agent.parse, output_dir)
+        # Images - use same logic as main parsing
+        if any([
+            config.get('images_hero', False),
+            config.get('images_gallery', False),
+            config.get('images_aplus_product', False),
+            config.get('images_aplus_brand', False),
+        ]):
+            images_result = {
+                'hero': [],
+                'gallery': [],
+                'aplus_product': [],
+                'aplus_brand': [],
+                'aplus_manufacturer': [],
+                'total_images': 0,
+                'errors': []
+            }
+            md5_cache = set()
+            hero_url = None
+            
+            if config.get('images_hero', False):
+                hero_parser = HeroParser(self.browser_pool, md5_cache)
+                hero_images, hero_url = self._run_with_retry(hero_parser.parse, output_dir)
+                images_result['hero'] = hero_images
+            
+            if config.get('images_gallery', False):
+                gallery_parser = GalleryParser(self.browser_pool, md5_cache)
+                gallery_images = self._run_with_retry(gallery_parser.parse, output_dir, hero_url)
+                images_result['gallery'] = gallery_images
+            
+            if config.get('images_aplus_product', False):
+                aplus_product_parser = APlusProductParser(self.browser_pool, md5_cache)
+                aplus_product_images = self._run_with_retry(aplus_product_parser.parse, output_dir)
+                images_result['aplus_product'] = aplus_product_images
+            
+            if config.get('images_aplus_brand', False):
+                aplus_brand_parser = APlusBrandParser(self.browser_pool, md5_cache)
+                aplus_brand_images = self._run_with_retry(aplus_brand_parser.parse, output_dir)
+                images_result['aplus_brand'] = aplus_brand_images
+            
+            if config.get('images_aplus_manufacturer', False):
+                aplus_manufacturer_parser = APlusManufacturerParser(self.browser_pool, md5_cache)
+                aplus_manufacturer_images = self._run_with_retry(aplus_manufacturer_parser.parse, output_dir)
+                images_result['aplus_manufacturer'] = aplus_manufacturer_images
+            
+            images_result['total_images'] = (
+                len(images_result['hero']) +
+                len(images_result['gallery']) +
+                len(images_result['aplus_product']) +
+                len(images_result['aplus_brand']) +
+                len(images_result['aplus_manufacturer'])
+            )
+            results['images'] = images_result
         
         # Reviews
         if config.get('reviews', False):
@@ -328,10 +417,122 @@ class Coordinator:
         
         return results
     
-    def _run_image_agent(self):
-        """Run image parsing agent."""
-        agent = ImageParserAgent(self.browser_pool)
-        self.results['images'] = self._run_with_retry(agent.parse, self.output_dir)
+    def _run_image_agents(self, config: Dict):
+        """Run image parsing agents based on config."""
+        start_time = time.time()
+        images_result = {
+            'hero': [],
+            'gallery': [],
+            'aplus_product': [],
+            'aplus_brand': [],
+            'total_images': 0,
+            'errors': []
+        }
+        
+        # Shared MD5 cache for deduplication across all image parsers
+        md5_cache = set()
+        
+        # Parse hero image (needed for gallery to exclude duplicates)
+        hero_url = None
+        if config.get('images_hero', False):
+            try:
+                agent_start = time.time()
+                hero_parser = HeroParser(self.browser_pool, md5_cache)
+                hero_images, hero_url = self._run_with_retry(hero_parser.parse, self.output_dir)
+                images_result['hero'] = hero_images
+                self._log_performance('Hero images', time.time() - agent_start)
+                logger.info(f"Hero images: {len(hero_images)}")
+            except Exception as e:
+                logger.error(f"Hero parsing failed: {e}")
+                images_result['errors'].append(f"Hero: {str(e)}")
+        
+        # Parse gallery images
+        if config.get('images_gallery', False):
+            try:
+                agent_start = time.time()
+                gallery_parser = GalleryParser(self.browser_pool, md5_cache)
+                gallery_images = self._run_with_retry(gallery_parser.parse, self.output_dir, hero_url)
+                images_result['gallery'] = gallery_images
+                self._log_performance('Gallery images', time.time() - agent_start)
+                logger.info(f"Gallery images: {len(gallery_images)}")
+            except Exception as e:
+                logger.error(f"Gallery parsing failed: {e}")
+                images_result['errors'].append(f"Gallery: {str(e)}")
+        
+        # Parse A+ product images
+        if config.get('images_aplus_product', False):
+            try:
+                agent_start = time.time()
+                aplus_product_parser = APlusProductParser(self.browser_pool, md5_cache)
+                aplus_product_result = self._run_with_retry(aplus_product_parser.parse, self.output_dir)
+                # Handle both dict (new format) and list (old format) for compatibility
+                if isinstance(aplus_product_result, dict):
+                    images_result['aplus_product'] = aplus_product_result.get('images', [])
+                    # Store alt texts in results
+                    if 'image_alt_texts' not in self.results:
+                        self.results['image_alt_texts'] = {}
+                    self.results['image_alt_texts'].update(aplus_product_result.get('alt_texts', {}))
+                else:
+                    images_result['aplus_product'] = aplus_product_result
+                self._log_performance('A+ Product images', time.time() - agent_start)
+                logger.info(f"A+ product images: {len(images_result['aplus_product'])}")
+            except Exception as e:
+                logger.error(f"A+ product parsing failed: {e}")
+                images_result['errors'].append(f"A+ Product: {str(e)}")
+        
+        # Parse A+ brand images
+        if config.get('images_aplus_brand', False):
+            try:
+                agent_start = time.time()
+                aplus_brand_parser = APlusBrandParser(self.browser_pool, md5_cache)
+                aplus_brand_result = self._run_with_retry(aplus_brand_parser.parse, self.output_dir)
+                # Handle both dict (new format) and list (old format) for compatibility
+                if isinstance(aplus_brand_result, dict):
+                    images_result['aplus_brand'] = aplus_brand_result.get('images', [])
+                    # Store alt texts in results
+                    if 'image_alt_texts' not in self.results:
+                        self.results['image_alt_texts'] = {}
+                    self.results['image_alt_texts'].update(aplus_brand_result.get('alt_texts', {}))
+                else:
+                    images_result['aplus_brand'] = aplus_brand_result
+                self._log_performance('A+ Brand images', time.time() - agent_start)
+                logger.info(f"A+ brand images: {len(images_result['aplus_brand'])}")
+            except Exception as e:
+                logger.error(f"A+ brand parsing failed: {e}")
+                images_result['errors'].append(f"A+ Brand: {str(e)}")
+        
+        # Parse A+ manufacturer images
+        if config.get('images_aplus_manufacturer', False):
+            try:
+                agent_start = time.time()
+                aplus_manufacturer_parser = APlusManufacturerParser(self.browser_pool, md5_cache)
+                aplus_manufacturer_result = self._run_with_retry(aplus_manufacturer_parser.parse, self.output_dir)
+                # Handle both dict (new format) and list (old format) for compatibility
+                if isinstance(aplus_manufacturer_result, dict):
+                    images_result['aplus_manufacturer'] = aplus_manufacturer_result.get('images', [])
+                    # Store alt texts in results
+                    if 'image_alt_texts' not in self.results:
+                        self.results['image_alt_texts'] = {}
+                    self.results['image_alt_texts'].update(aplus_manufacturer_result.get('alt_texts', {}))
+                else:
+                    images_result['aplus_manufacturer'] = aplus_manufacturer_result
+                self._log_performance('A+ Manufacturer images', time.time() - agent_start)
+                logger.info(f"A+ manufacturer images: {len(images_result['aplus_manufacturer'])}")
+            except Exception as e:
+                logger.error(f"A+ manufacturer parsing failed: {e}")
+                images_result['errors'].append(f"A+ Manufacturer: {str(e)}")
+        
+        # Calculate total
+        images_result['total_images'] = (
+            len(images_result['hero']) +
+            len(images_result['gallery']) +
+            len(images_result['aplus_product']) +
+            len(images_result['aplus_brand']) +
+            len(images_result['aplus_manufacturer'])
+        )
+        
+        self.results['images'] = images_result
+        self._log_performance('Total image parsing', time.time() - start_time)
     
     def _run_reviews_agent(self):
         """Run reviews parsing agent."""
@@ -376,6 +577,9 @@ class Coordinator:
             product_name = sanitize_filename(product_name)
             output_path = Path(self.output_dir) / f'{product_name}.docx'
             
+            # Add output_dir to results for docx generator
+            self.results['output_dir'] = self.output_dir
+            
             generator.generate(self.results, str(output_path))
             self.results['docx_path'] = str(output_path)
             
@@ -387,22 +591,58 @@ class Coordinator:
     
     def _prepare_results_summary(self) -> Dict:
         """Prepare summary for database storage."""
+        # Calculate processing time
+        start_time = self.results.get('start_time', time.time())
+        processing_time = time.time() - start_time
+        
+        images_data = self.results.get('images', {})
+        # Safely get counts - handle both list and None cases
+        hero_list = images_data.get('hero') or []
+        gallery_list = images_data.get('gallery') or []
+        aplus_product_list = images_data.get('aplus_product') or []
+        aplus_brand_list = images_data.get('aplus_brand') or []
+        aplus_manufacturer_list = images_data.get('aplus_manufacturer') or []
+        
+        hero_count = len(hero_list) if isinstance(hero_list, list) else 0
+        gallery_count = len(gallery_list) if isinstance(gallery_list, list) else 0
+        aplus_product_count = len(aplus_product_list) if isinstance(aplus_product_list, list) else 0
+        aplus_brand_count = len(aplus_brand_list) if isinstance(aplus_brand_list, list) else 0
+        aplus_manufacturer_count = len(aplus_manufacturer_list) if isinstance(aplus_manufacturer_list, list) else 0
+        
         summary = {
             'product_name': self.results.get('text', {}).get('title'),
             'asin': self.results.get('text', {}).get('asin'),
             'output_dir': self.output_dir,
             'images': {
-                'hero': len(self.results.get('images', {}).get('hero', [])),
-                'gallery': len(self.results.get('images', {}).get('gallery', [])),
-                'aplus': len(self.results.get('images', {}).get('aplus_brand', [])) + 
-                         len(self.results.get('images', {}).get('aplus_product', [])),
+                'hero': hero_count,
+                'gallery': gallery_count,
+                'aplus_product': aplus_product_count,
+                'aplus_brand': aplus_brand_count,
+                'aplus_manufacturer': aplus_manufacturer_count,
+                'aplus': aplus_product_count + aplus_brand_count + aplus_manufacturer_count,
             },
             'reviews_count': len(self.results.get('reviews', {}).get('reviews', [])),
             'qa_count': len(self.results.get('qa', {}).get('qa_pairs', [])),
             'variants_count': len(self.results.get('variants', {}).get('variants', [])),
             'validation_score': self.results.get('validation', {}).get('completeness_score', 0),
+            'processing_time_seconds': round(processing_time, 2),
+            'processing_time_formatted': self._format_processing_time(processing_time),
+            'performance_metrics': self.performance_metrics if Settings.PERFORMANCE_LOGGING else {},
             'errors': self.results.get('errors', [])
         }
         
         return summary
+    
+    def _format_processing_time(self, seconds: float) -> str:
+        """Format processing time in human-readable format."""
+        if seconds < 60:
+            return f"{int(seconds)}s"
+        elif seconds < 3600:
+            minutes = int(seconds // 60)
+            secs = int(seconds % 60)
+            return f"{minutes}m {secs}s"
+        else:
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            return f"{hours}h {minutes}m"
 

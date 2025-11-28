@@ -134,7 +134,7 @@ class BrowserPool:
             wait_start = time.time()
             
             try:
-                wait = WebDriverWait(driver, 6)  # Max 6 seconds for gallery
+                wait = WebDriverWait(driver, 3)  # Max 3 seconds for gallery (optimized)
                 
                 # Wait for at least one gallery element to appear
                 def gallery_ready(driver):
@@ -171,14 +171,26 @@ class BrowserPool:
                 logger.info(f"  [Navigation] Found {valid_images} images with valid sources")
                 
             except TimeoutException:
-                logger.warning(f"  [Navigation] Gallery elements timeout after 6s, continuing anyway...")
+                logger.warning(f"  [Navigation] Gallery elements timeout after 3s, continuing anyway...")
             
-            # Small delay to let images start loading
-            self._random_sleep(0.3, 0.6)
+            # Minimal delay - images already loading
+            delay_start = time.time()
+            self._random_sleep(0.1, 0.2)  # Reduced from 0.3-0.6
+            delay_time = time.time() - delay_start
+            logger.debug(f"  [Navigation] Initial delay: {delay_time:.2f}s")
             
-            # Handle soft blocks (including "Continue shopping" button)
-            if self._handle_soft_block():
-                logger.info("  [Navigation] Handled soft block, continuing...")
+            # Handle soft blocks (including "Continue shopping" button) - with timeout
+            soft_block_start = time.time()
+            try:
+                # Quick check with timeout to avoid long waits
+                if self._handle_soft_block_quick():
+                    soft_block_time = time.time() - soft_block_start
+                    logger.info(f"  [Navigation] Handled soft block ({soft_block_time:.2f}s)")
+                else:
+                    soft_block_time = time.time() - soft_block_start
+                    logger.debug(f"  [Navigation] Soft block check: {soft_block_time:.2f}s")
+            except Exception as e:
+                logger.debug(f"  [Navigation] Soft block check error: {e}")
             
             total_time = time.time() - start_time
             logger.info(f"  [Navigation] Navigation complete (total: {total_time:.2f}s)")
@@ -219,16 +231,22 @@ class BrowserPool:
         Returns:
             True if block was handled
         """
+        return self._handle_soft_block_quick()
+    
+    def _handle_soft_block_quick(self) -> bool:
+        """
+        Quick check for soft blocks with minimal delay.
+        
+        Returns:
+            True if block was handled
+        """
         driver = self.get_driver()
         
         try:
-            # Check for "Continue shopping" button (multiple possible selectors)
+            # Quick check for "Continue shopping" button (most common selectors first)
             continue_selectors = [
                 "//a[contains(text(), 'Continue shopping')]",
                 "//button[contains(text(), 'Continue shopping')]",
-                "//a[contains(@class, 'continue-shopping')]",
-                "//button[contains(@class, 'continue-shopping')]",
-                "//a[contains(., 'Continue shopping')]",
             ]
             
             for selector in continue_selectors:
@@ -239,19 +257,22 @@ class BrowserPool:
                             if btn.is_displayed():
                                 logger.info("Found 'Continue shopping' button, clicking...")
                                 btn.click()
-                                self._random_sleep(0.5, 1.0)
+                                self._random_sleep(0.2, 0.4)  # Reduced delay
                                 return True
                 except:
                     continue
             
-            # Check for CAPTCHA
-            captcha_elements = driver.find_elements(
-                By.XPATH,
-                "//*[contains(text(), 'Enter the characters')]"
-            )
-            if captcha_elements:
-                logger.warning("CAPTCHA detected! Manual intervention may be required.")
-                return False
+            # Quick CAPTCHA check
+            try:
+                captcha_elements = driver.find_elements(
+                    By.XPATH,
+                    "//*[contains(text(), 'Enter the characters')]"
+                )
+                if captcha_elements:
+                    logger.warning("CAPTCHA detected! Manual intervention may be required.")
+                    return False
+            except:
+                pass
             
             return False
             

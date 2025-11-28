@@ -27,9 +27,9 @@ class Settings:
     OUTPUT_DIR: str = os.getenv('AMAZON_PARSER_OUTPUT_DIR', 'outputs')
     DATABASE_PATH: str = os.getenv('AMAZON_PARSER_DATABASE_PATH', 'tasks.db')
     
-    # Image download settings
-    IMAGE_DOWNLOAD_DELAY_MIN: float = 0.5
-    IMAGE_DOWNLOAD_DELAY_MAX: float = 1.5
+    # Image download settings (reduced for faster parsing)
+    IMAGE_DOWNLOAD_DELAY_MIN: float = 0.1
+    IMAGE_DOWNLOAD_DELAY_MAX: float = 0.3
     
     # Window size
     WINDOW_WIDTH: int = 1920
@@ -63,7 +63,7 @@ class Settings:
         'How customer reviews and ratings work',
     ]
     
-    # Excluded URL patterns (video, 360, ads)
+    # Excluded URL patterns (video, 360, ads, icons)
     EXCLUDED_URL_PATTERNS: list = [
         '360',
         'video',
@@ -77,5 +77,22 @@ class Settings:
         'blank',
         'loading',
         'spinner',
+        '/sash/',  # SVG іконки Amazon
+        '.svg',  # SVG файли
     ]
+    
+    # Image size limits
+    MAX_IMAGE_SIZE: int = int(os.getenv('AMAZON_PARSER_MAX_IMAGE_SIZE', '10485760'))  # 10MB default
+    
+    # MD5 cache management
+    MD5_CACHE_MAX_SIZE: int = int(os.getenv('AMAZON_PARSER_MD5_CACHE_MAX', '10000'))  # Max 10000 entries
+    
+    # Task cleanup
+    TASK_CLEANUP_DAYS: int = int(os.getenv('AMAZON_PARSER_TASK_CLEANUP_DAYS', '30'))  # Keep tasks for 30 days
+    
+    # Selector cache
+    SELECTOR_CACHE_ENABLED: bool = os.getenv('AMAZON_PARSER_SELECTOR_CACHE', 'true').lower() == 'true'
+    
+    # Performance logging
+    PERFORMANCE_LOGGING: bool = os.getenv('AMAZON_PARSER_PERFORMANCE_LOGGING', 'true').lower() == 'true'
 

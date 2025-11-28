@@ -1,13 +1,12 @@
 """Image Parser Agent - Parses hero, gallery, and A+ content images"""
 import os
 import re
+import json
 from typing import Dict, List, Set, Optional
 from pathlib import Path
 
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException
 
 from core.browser_pool import BrowserPool
 from utils.file_utils import save_image_with_dedup, get_high_res_url, is_excluded_url, download_image, calculate_md5
@@ -132,29 +131,11 @@ class ImageParserAgent:
                 logger.debug(f"  [{i}/{len(hero_selectors)}] Trying selector: {selector}")
                 element = driver.find_element(By.CSS_SELECTOR, selector)
                 
-                # Try different attributes for image URL
-                url = (
-                    element.get_attribute('data-old-hires') or
-                    element.get_attribute('data-a-dynamic-image') or
-                    element.get_attribute('data-src') or
-                    element.get_attribute('src')
-                )
+                # Use unified extraction method
+                url = self._extract_high_res_url_from_element(element)
                 
                 if url:
                     logger.debug(f"    Found URL: {url[:80]}...")
-                    
-                    # Handle dynamic image JSON
-                    if url.startswith('{'):
-                        logger.debug("    Parsing JSON image data...")
-                        urls = re.findall(r'"(https://[^"]+)"', url)
-                        if urls:
-                            logger.debug(f"    Found {len(urls)} URLs in JSON")
-                            # Get the highest resolution
-                            url = max(urls, key=lambda u: self._get_image_size_from_url(u))
-                            logger.debug(f"    Selected highest res: {url[:80]}...")
-                    
-                    url = get_high_res_url(url)
-                    logger.debug(f"    High-res URL: {url[:80]}...")
                     
                     if is_excluded_url(url):
                         logger.debug("    URL excluded (video/360/ad)")
@@ -172,8 +153,6 @@ class ImageParserAgent:
                         break
                     else:
                         logger.warning("    Failed to save hero image")
-                else:
-                    logger.debug("    No URL found in element")
                             
             except NoSuchElementException:
                 logger.debug(f"    Element not found")
@@ -188,8 +167,8 @@ class ImageParserAgent:
     
     def parse_gallery_images(self, output_dir: str, hero_url: str = None) -> List[str]:
         """
-        Parse product gallery images using modal popup method.
-        Based on proven algorithm: open modal, click through thumbnails, extract high-res images.
+        Parse product gallery images by clicking thumbnails to get full-size URLs.
+        Uses clicks to trigger loading of full-size images in main image container.
         
         Args:
             output_dir: Directory to save images
@@ -201,380 +180,247 @@ class ImageParserAgent:
         saved_images = []
         driver = self.browser.get_driver()
         
-        logger.info("Scraping Gallery using modal method...")
+        logger.info("Parsing gallery images by clicking thumbnails...")
         
-        # Step 1: Find main image to open modal
-        main_img = None
-        triggers = ['#landingImage', '#imgTagWrapperId', '#main-image-container']
-        
-        for trigger in triggers:
-            try:
-                elements = driver.find_elements(By.CSS_SELECTOR, trigger)
-                for el in elements:
-                    if el.is_displayed():
-                        main_img = el
-                        logger.info(f"✓ Found main image with selector: {trigger}")
-                        break
-                if main_img:
-                    break
-            except:
-                continue
-        
-        if not main_img:
-            logger.warning("⚠ Could not find main image to open modal, trying fallback...")
-            return self._scrape_gallery_fallback(output_dir, hero_url)
-        
-        # Step 2: Open modal by clicking main image
+        # Scroll to gallery
         try:
-            main_img.click()
-            logger.info("Clicked main image, waiting for modal...")
-            self.browser._random_sleep(1.5, 2.5)  # Wait for modal to appear
-        except Exception as e:
-            logger.warning(f"⚠ Could not click main image: {e}")
-            return self._scrape_gallery_fallback(output_dir, hero_url)
+            gallery_container = driver.find_element(By.CSS_SELECTOR, '#altImages, #imageBlock_feature_div')
+            self.browser.scroll_to_element(gallery_container)
+            self.browser._random_sleep(0.2, 0.4)
+        except:
+            pass
         
-        # Step 3: Wait for modal to appear
-        try:
-            from selenium.webdriver.support import expected_conditions as EC
-            wait = WebDriverWait(driver, 5)
-            wait.until(EC.visibility_of_any_elements_located((
-                By.CSS_SELECTOR, ".a-popover-modal, #ivLargeImage, #imageBlock_feature_div"
-            )))
-            logger.info("✓ Modal appeared")
-        except TimeoutException:
-            logger.warning("⚠ Modal did not appear, trying fallback...")
-            return self._scrape_gallery_fallback(output_dir, hero_url)
-        
-        # Step 4: Find thumbnails in modal
-        thumb_selectors = [
-            "#ivThumbs .ivThumb",
-            "#ivImage_0",
-            ".a-popover-modal .a-button-thumbnail",
-            "#ivRow .ivRowThumb",  # Fallback
+        # Find all thumbnail buttons/links (not images, but clickable elements)
+        thumbnail_selectors = [
+            '#altImages ul li.item',  # Thumbnail container (clickable)
+            '#altImages li',  # Alternative
         ]
         
+        all_urls = []
+        hero_url_normalized = None
+        if hero_url:
+            hero_url_normalized = self._normalize_url_for_comparison(hero_url)
+        
+        # Try to find thumbnails
         thumbnails = []
-        for selector in thumb_selectors:
+        for selector in thumbnail_selectors:
             try:
-                thumbnails = driver.find_elements(By.CSS_SELECTOR, selector)
-                if thumbnails:
-                    logger.info(f"✓ Found {len(thumbnails)} thumbnails with selector: {selector}")
+                found = driver.find_elements(By.CSS_SELECTOR, selector)
+                if found:
+                    thumbnails = found
+                    logger.info(f"Found {len(thumbnails)} thumbnail containers with: {selector}")
                     break
             except:
                 continue
         
-        # If no thumbnails found, try to get current large image
         if not thumbnails:
-            logger.warning("⚠ No thumbnails found in modal, trying to get current image...")
-            try:
-                large_img = driver.find_element(By.CSS_SELECTOR, "#ivLargeImage img")
-                src = large_img.get_attribute('src')
-                if src:
-                    url = get_high_res_url(src)
-                    if not is_excluded_url(url) and url.startswith('http'):
-                        gallery_dir = Path(output_dir) / 'product'
-                        gallery_dir.mkdir(parents=True, exist_ok=True)
-                        output_path = gallery_dir / 'product1.jpg'
-                        if save_image_with_dedup(url, str(output_path), self.md5_cache):
-                            saved_images.append(str(output_path))
-                            logger.info(f"  ✓ Saved: product1.jpg")
-            except:
-                pass
-            
-            # Close modal and return
-            self._close_modal(driver)
+            logger.warning("⚠ No gallery thumbnails found")
             return saved_images
         
-        # Step 5: Click through all thumbnails
-        logger.info(f"Processing {len(thumbnails)} thumbnails...")
-        all_image_urls = []
-        hero_md5 = None
-        
-        # Calculate hero MD5 for exclusion
-        if hero_url:
-            try:
-                hero_data = download_image(hero_url)
-                if hero_data:
-                    hero_md5 = calculate_md5(hero_data)
-            except:
-                pass
-        
-        for i, thumb in enumerate(thumbnails):
+        # Click each thumbnail and extract URL from main image
+        for idx, thumb in enumerate(thumbnails, 1):
             try:
                 # Skip video thumbnails
-                if self._is_video_thumbnail(thumb):
-                    logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipping video thumbnail")
-                    continue
-                
-                # Check for video in class or innerHTML
                 try:
-                    thumb_class = thumb.get_attribute("class") or ""
-                    if "video" in thumb_class.lower():
-                        logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipping video (class contains 'video')")
+                    img = thumb.find_element(By.CSS_SELECTOR, 'img')
+                    if self._is_video_thumbnail(img):
+                        logger.debug(f"  [Thumbnail {idx}/{len(thumbnails)}] Skipped (video)")
                         continue
                 except:
                     pass
                 
                 # Click thumbnail
-                import time
-                click_start = time.time()
-                logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Clicking thumbnail...")
-                # Use slightly longer delay (0.2-0.4s) to avoid detection - still fast but safer
-                self.browser.click_element(thumb, min_delay=0.2, max_delay=0.4)
-                click_time = time.time() - click_start
-                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Click completed ({click_time:.2f}s)")
-                
-                # Wait for image to change (more efficient than fixed delay)
-                wait_start = time.time()
-                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Waiting for image to load...")
                 try:
-                    wait = WebDriverWait(driver, 3)  # Increased timeout slightly
-                    # Get current src before waiting
-                    try:
-                        current_src = driver.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src')
-                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Current image src: {current_src[:50] if current_src else 'None'}...")
-                    except:
-                        pass
-                    
-                    # Wait for image src to change or be loaded
-                    wait.until(lambda d: d.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src') and 
-                               'loading' not in (d.find_element(By.CSS_SELECTOR, "#ivLargeImage img").get_attribute('src') or '').lower())
-                    wait_time = time.time() - wait_start
-                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Image loaded ({wait_time:.2f}s)")
+                    self.browser.scroll_to_element(thumb)
+                    self.browser._random_sleep(0.1, 0.2)
+                    thumb.click()
+                    self.browser._random_sleep(0.3, 0.5)  # Wait for image to load
                 except Exception as e:
-                    # Fallback to small delay if wait fails
-                    wait_time = time.time() - wait_start
-                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Wait timeout ({wait_time:.2f}s), using fallback delay: {e}")
-                    self.browser._random_sleep(0.2, 0.4)
-                
-                # Get large image
-                try:
-                    large_img = driver.find_element(By.CSS_SELECTOR, "#ivLargeImage img")
-                    src = large_img.get_attribute('src')
-                    
-                    if src:
-                        # Convert to high resolution
-                        url = get_high_res_url(src)
-                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Got image URL: {url[:60]}...")
-                        
-                        if not is_excluded_url(url) and url.startswith('http'):
-                            # Check if it's hero image
-                            is_hero = False
-                            if i == 0:  # First image is usually hero
-                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] First image, marking as hero")
-                                is_hero = True
-                            elif hero_url and url == hero_url:
-                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Matches hero URL, skipping")
-                                is_hero = True
-                            elif hero_md5:
-                                try:
-                                    logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Checking MD5 against hero...")
-                                    img_data = download_image(url)
-                                    if img_data and calculate_md5(img_data) == hero_md5:
-                                        logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] MD5 matches hero, skipping")
-                                        is_hero = True
-                                except:
-                                    pass
-                            
-                            if not is_hero and url not in all_image_urls:
-                                all_image_urls.append(url)
-                                logger.info(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✓ Added to gallery list (total: {len(all_image_urls)})")
-                            elif is_hero:
-                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipped (hero image)")
-                            elif url in all_image_urls:
-                                logger.debug(f"  [Thumbnail {i + 1}/{len(thumbnails)}] Skipped (duplicate URL)")
-                except NoSuchElementException:
-                    logger.warning(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✗ Could not find large image")
+                    logger.debug(f"  [Thumbnail {idx}/{len(thumbnails)}] Click failed: {e}")
                     continue
+                
+                # Extract URL from main image after click
+                main_image_selectors = [
+                    '#landingImage',
+                    '#imgTagWrapperId img',
+                    '#main-image-container img',
+                ]
+                
+                url = None
+                for img_selector in main_image_selectors:
+                    try:
+                        main_img = driver.find_element(By.CSS_SELECTOR, img_selector)
+                        url = self._extract_high_res_url_from_element(main_img)
+                        if url and url.startswith('http') and not is_excluded_url(url):
+                            break
+                    except:
+                        continue
+                
+                if not url or not url.startswith('http'):
+                    logger.debug(f"  [Thumbnail {idx}/{len(thumbnails)}] No URL extracted after click")
+                    continue
+                
+                if is_excluded_url(url):
+                    logger.debug(f"  [Thumbnail {idx}/{len(thumbnails)}] Excluded URL")
+                    continue
+                
+                # Check if it's hero image
+                is_hero = False
+                if hero_url_normalized:
+                    url_normalized = self._normalize_url_for_comparison(url)
+                    if hero_url_normalized == url_normalized:
+                        is_hero = True
+                        logger.info(f"  [Thumbnail {idx}/{len(thumbnails)}] ✗ Skipped hero duplicate")
+                
+                if not is_hero and url not in all_urls:
+                    all_urls.append(url)
+                    logger.info(f"  [Thumbnail {idx}/{len(thumbnails)}] ✓ Added gallery URL: {url[:60]}...")
+                elif url in all_urls:
+                    logger.debug(f"  [Thumbnail {idx}/{len(thumbnails)}] Duplicate URL skipped")
                     
             except Exception as e:
-                logger.warning(f"  [Thumbnail {i + 1}/{len(thumbnails)}] ✗ Error: {e}")
+                logger.warning(f"  [Thumbnail {idx}/{len(thumbnails)}] Error: {e}")
                 continue
         
-        # Step 6: Close modal
-        self._close_modal(driver)
-        
-        # Step 7: Save all images
-        if not all_image_urls:
-            logger.warning("⚠ No gallery images found in modal")
+        # Save images
+        if not all_urls:
+            logger.warning("⚠ No gallery images found")
             return saved_images
         
         gallery_dir = Path(output_dir) / 'product'
         gallery_dir.mkdir(parents=True, exist_ok=True)
         
-        logger.info(f"Downloading {len(all_image_urls)} gallery images...")
-        for i, url in enumerate(all_image_urls, 1):
+        logger.info(f"Downloading {len(all_urls)} gallery images...")
+        for i, url in enumerate(all_urls, 1):
             try:
                 output_path = gallery_dir / f'product{i}.jpg'
-                logger.info(f"  [Download {i}/{len(all_image_urls)}] Downloading product{i}.jpg...")
+                logger.info(f"  [Download {i}/{len(all_urls)}] Downloading product{i}.jpg...")
+                logger.debug(f"  [Download {i}/{len(all_urls)}] URL: {url[:80]}...")
+                
                 if save_image_with_dedup(url, str(output_path), self.md5_cache):
                     saved_images.append(str(output_path))
-                    logger.info(f"  [Download {i}/{len(all_image_urls)}] ✓ Saved: product{i}.jpg")
+                    logger.info(f"  [Download {i}/{len(all_urls)}] ✓ Saved: product{i}.jpg")
                 else:
-                    logger.debug(f"  [Download {i}/{len(all_image_urls)}] ✗ Skipped (duplicate or invalid)")
+                    logger.warning(f"  [Download {i}/{len(all_urls)}] ✗ Failed to save (check logs above for reason)")
             except Exception as e:
-                logger.warning(f"  [Download {i}/{len(all_image_urls)}] ✗ Failed: {e}")
+                logger.error(f"  [Download {i}/{len(all_urls)}] ✗ Exception: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
         
         logger.info(f"✓ Gallery parsing complete: {len(saved_images)} images saved")
         return saved_images
     
-    def _scrape_gallery_fallback(self, output_dir: str, hero_url: str = None) -> List[str]:
+    def _extract_high_res_url_from_element(self, element) -> Optional[str]:
         """
-        Fallback method: scrape gallery directly from page without modal.
+        Extract high-resolution URL from image element.
+        For gallery thumbnails, checks parent elements and data-a-dynamic-image JSON.
+        
+        Priority:
+        1. data-old-hires (direct high-res) - на елементі або батьківському
+        2. data-a-dynamic-image (JSON with all sizes) - вибрати найбільший
+        3. data-src (lazy-loaded) - але перевірити розмір
+        4. src (fallback) - тільки якщо не маленький thumbnail
         
         Args:
-            output_dir: Directory to save images
-            hero_url: Hero image URL to exclude
+            element: Selenium WebElement with image
             
         Returns:
-            List of saved image paths
+            High-resolution URL or None
         """
-        saved_images = []
-        driver = self.browser.get_driver()
+        # 1. data-old-hires - найкращий варіант (direct high-res)
+        # Перевірити на самому елементі
+        url = element.get_attribute('data-old-hires')
+        if url and url.startswith('http'):
+            logger.debug(f"Found data-old-hires on element: {url[:60]}...")
+            return get_high_res_url(url)
         
-        logger.info("Scraping Gallery (Fallback method)...")
-        
-        # Find thumbnails on page
-        thumb_selectors = [
-            "#altImages ul li.item",
-            "#av-id-hero-img-wrapper li",
-            ".a-button-thumbnail",
-        ]
-        
-        thumbnails = []
-        for selector in thumb_selectors:
-            try:
-                thumbnails = driver.find_elements(By.CSS_SELECTOR, selector)
-                if thumbnails:
-                    logger.info(f"✓ Found {len(thumbnails)} thumbnails on page: {selector}")
-                    break
-            except:
-                continue
-        
-        if not thumbnails:
-            logger.warning("⚠ No thumbnails found on page")
-            return saved_images
-        
-        all_image_urls = []
-        hero_md5 = None
-        
-        if hero_url:
-            try:
-                hero_data = download_image(hero_url)
-                if hero_data:
-                    hero_md5 = calculate_md5(hero_data)
-            except:
-                pass
-        
-        # Click through thumbnails on page
-        for i, thumb in enumerate(thumbnails):
-            try:
-                # Skip video
-                if self._is_video_thumbnail(thumb):
-                    continue
-                
-                try:
-                    thumb_class = thumb.get_attribute("class") or ""
-                    if "video" in thumb_class.lower():
-                        continue
-                    # Check for video icon
-                    if thumb.find_elements(By.CSS_SELECTOR, "span.a-icon-video"):
-                        continue
-                except:
-                    pass
-                
-                # Hover and click
-                from selenium.webdriver.common.action_chains import ActionChains
-                actions = ActionChains(driver)
-                actions.move_to_element(thumb).perform()
-                thumb.click()
-                self.browser._random_sleep(0.5, 1.0)
-                
-                # Get main image
-                try:
-                    main_img = driver.find_element(
-                        By.CSS_SELECTOR,
-                        "#landingImage, #imgBlkFront, #main-image"
-                    )
-                    src = main_img.get_attribute('src')
-                    
-                    if src:
-                        url = get_high_res_url(src)
-                        
-                        if not is_excluded_url(url) and url.startswith('http'):
-                            # Check if hero
-                            is_hero = False
-                            if hero_url and url == hero_url:
-                                is_hero = True
-                            elif hero_md5:
-                                try:
-                                    img_data = download_image(url)
-                                    if img_data and calculate_md5(img_data) == hero_md5:
-                                        is_hero = True
-                                except:
-                                    pass
-                            
-                            if not is_hero and url not in all_image_urls:
-                                all_image_urls.append(url)
-                except NoSuchElementException:
-                    continue
-                    
-            except Exception as e:
-                logger.debug(f"Error with thumbnail {i}: {e}")
-                continue
-        
-        # Save images
-        if not all_image_urls:
-            return saved_images
-        
-        gallery_dir = Path(output_dir) / 'product'
-        gallery_dir.mkdir(parents=True, exist_ok=True)
-        
-        for i, url in enumerate(all_image_urls, 1):
-            try:
-                output_path = gallery_dir / f'product{i}.jpg'
-                if save_image_with_dedup(url, str(output_path), self.md5_cache):
-                    saved_images.append(str(output_path))
-                    logger.info(f"  ✓ Saved: product{i}.jpg")
-            except Exception as e:
-                logger.debug(f"  ✗ Failed: {e}")
-        
-        return saved_images
-    
-    def _close_modal(self, driver):
-        """Close modal popup."""
+        # Перевірити на батьківському елементі (для gallery thumbnails - li.item)
         try:
-            close_selectors = [
-                ".a-popover-header .a-button-close",
-                "#ivCloseButton",
-                "button[data-action='a-popover-close']",
-                '.a-button-close',
-                '[aria-label*="Close" i]',
-            ]
+            parent = element.find_element(By.XPATH, './..')
+            url = parent.get_attribute('data-old-hires')
+            if url and url.startswith('http'):
+                logger.debug(f"Found data-old-hires on parent: {url[:60]}...")
+                return get_high_res_url(url)
+        except:
+            pass
+        
+        # 2. data-a-dynamic-image - JSON з усіма розмірами (найважливіше для gallery!)
+        # Перевірити на самому елементі
+        json_data = element.get_attribute('data-a-dynamic-image')
+        if json_data:
+            url = self._extract_url_from_json(json_data)
+            if url:
+                return url
+        
+        # Перевірити на батьківському елементі (для gallery thumbnails)
+        try:
+            parent = element.find_element(By.XPATH, './..')
+            json_data = parent.get_attribute('data-a-dynamic-image')
+            if json_data:
+                url = self._extract_url_from_json(json_data)
+                if url:
+                    return url
+        except:
+            pass
+        
+        # 3. data-src (lazy-loaded) - перевірити чи не маленький thumbnail
+        url = element.get_attribute('data-src')
+        if url and url.startswith('http'):
+            # Перевірити чи не маленький thumbnail (40x40, 75x75 тощо)
+            if not re.search(r'[SLXY](40|50|75|100|150|200)[^0-9]', url):
+                logger.debug(f"Using data-src: {url[:60]}...")
+                return get_high_res_url(url)
+            else:
+                logger.debug(f"Skipped small thumbnail in data-src: {url[:60]}...")
+        
+        # 4. src (fallback) - тільки якщо не маленький thumbnail і не SVG/іконка
+        url = element.get_attribute('src')
+        if url and url.startswith('http'):
+            # Перевірити чи не SVG/іконка
+            if '/sash/' in url or url.endswith('.svg'):
+                logger.debug(f"Skipped SVG/icon in src: {url[:60]}...")
+                return None
             
-            for selector in close_selectors:
-                try:
-                    close_btn = driver.find_element(By.CSS_SELECTOR, selector)
-                    if close_btn.is_displayed():
-                        close_btn.click()
-                        logger.info("Modal closed")
-                        self.browser._random_sleep(1, 1.5)
-                        return
-                except:
-                    continue
+            # Перевірити чи не маленький thumbnail
+            if not re.search(r'[SLXY](40|50|75|100|150|200)[^0-9]', url):
+                logger.debug(f"Using src: {url[:60]}...")
+                return get_high_res_url(url)
+            else:
+                logger.debug(f"Skipped small thumbnail in src: {url[:60]}...")
+        
+        logger.debug(f"Could not extract high-res URL from element")
+        return None
+    
+    def _extract_url_from_json(self, json_data: str) -> Optional[str]:
+        """
+        Extract highest resolution URL from data-a-dynamic-image JSON.
+        
+        Args:
+            json_data: JSON string from data-a-dynamic-image attribute
             
-            # Try ESC key
-            from selenium.webdriver.common.keys import Keys
-            driver.find_element(By.TAG_NAME, 'body').send_keys(Keys.ESCAPE)
-            self.browser._random_sleep(0.5, 1.0)
+        Returns:
+            Highest resolution URL or None
+        """
+        try:
+            import json
+            data = json.loads(json_data)
+            # data = {"url1": [width, height], "url2": [width, height]}
+            if data:
+                # Знайти найбільший розмір (width * height)
+                best_url, best_size = max(data.items(), key=lambda x: x[1][0] * x[1][1] if len(x[1]) >= 2 else 0)
+                logger.debug(f"Found best URL from JSON: {best_url[:60]}... (size: {best_size})")
+                return get_high_res_url(best_url)
+        except json.JSONDecodeError:
+            # Fallback: regex extraction if JSON invalid
+            urls = re.findall(r'"(https://[^"]+)"', json_data)
+            if urls:
+                best_url = max(urls, key=lambda u: self._get_image_size_from_url(u))
+                logger.debug(f"Found best URL from JSON (regex): {best_url[:60]}...")
+                return get_high_res_url(best_url)
         except Exception as e:
-            logger.debug(f"Could not close modal: {e}")
-            # Try clicking outside
-            try:
-                from selenium.webdriver.common.action_chains import ActionChains
-                ActionChains(driver).move_by_offset(10, 10).click().perform()
-            except:
-                pass
+            logger.debug(f"Error parsing JSON: {e}")
+        
+        return None
     
     def parse_aplus_images(self, output_dir: str, category: str) -> List[str]:
         """
@@ -705,14 +551,21 @@ class ImageParserAgent:
                         
                         logger.debug(f"Processing {len(images)} images...")
                         for img in images:
-                            url = img.get_attribute('data-src') or img.get_attribute('src')
-                            if url and not is_excluded_url(url):
-                                all_urls.append(get_high_res_url(url))
+                            url = self._extract_high_res_url_from_element(img)
+                            if url and not is_excluded_url(url) and url.startswith('http'):
+                                # Avoid duplicates
+                                if url not in all_urls:
+                                    all_urls.append(url)
+                                    logger.debug(f"  [A+ {category}] Added image URL: {url[:60]}...")
+                                else:
+                                    logger.debug(f"  [A+ {category}] Skipped duplicate URL")
                         
                         # Add carousel images, avoiding duplicates
                         for url in carousel_images:
-                            if url not in all_urls:
-                                all_urls.append(url)
+                            if url and not is_excluded_url(url) and url.startswith('http'):
+                                if url not in all_urls:
+                                    all_urls.append(url)
+                                    logger.debug(f"  [A+ {category}] Added carousel URL: {url[:60]}...")
                         
                         logger.debug(f"Total unique URLs found: {len(all_urls)}")
                         
@@ -720,17 +573,20 @@ class ImageParserAgent:
                         if all_urls:
                             aplus_dir.mkdir(parents=True, exist_ok=True)
                             logger.info(f"Found {len(all_urls)} images in {category} section, saving...")
-                            for idx, url in enumerate(all_urls):
-                                output_path = aplus_dir / f'{filename_prefix}{idx + 1}.jpg'
+                            for idx, url in enumerate(all_urls, 1):
+                                output_path = aplus_dir / f'{filename_prefix}{idx}.jpg'
+                                logger.debug(f"  [A+ {category}] Saving {filename_prefix}{idx}.jpg from: {url[:60]}...")
                                 if save_image_with_dedup(url, str(output_path), self.md5_cache):
                                     saved_images.append(str(output_path))
-                                    logger.debug(f"  Saved: {filename_prefix}{idx + 1}.jpg")
+                                    logger.info(f"  [A+ {category}] ✓ Saved: {filename_prefix}{idx}.jpg")
+                                else:
+                                    logger.warning(f"  [A+ {category}] ✗ Failed to save: {filename_prefix}{idx}.jpg (check logs for reason)")
                             
                             # After saving, break immediately
-                            logger.info(f"Saved {len(saved_images)} {category} images, moving on...")
+                            logger.info(f"Saved {len(saved_images)}/{len(all_urls)} {category} images, moving on...")
                             break
                         else:
-                            logger.debug(f"No images found in {category} section")
+                            logger.warning(f"  [A+ {category}] No URLs extracted from {len(images)} img tags and {len(carousel_images)} carousel images")
                     except Exception as e:
                         logger.debug(f"Error processing section: {e}")
                         continue
@@ -772,9 +628,11 @@ class ImageParserAgent:
             # Get initial images
             visible_images = section.find_elements(By.TAG_NAME, 'img')
             for img in visible_images:
-                url = img.get_attribute('data-src') or img.get_attribute('src')
-                if url and not is_excluded_url(url):
-                    urls.append(get_high_res_url(url))
+                url = self._extract_high_res_url_from_element(img)
+                if url and not is_excluded_url(url) and url.startswith('http'):
+                    if url not in urls:
+                        urls.append(url)
+                        logger.debug(f"Carousel: Added initial image: {url[:60]}...")
             
             # Click through carousel until we see duplicate (by URL or MD5)
             max_clicks = 20  # Increased limit, but will stop on duplicate
@@ -791,18 +649,17 @@ class ImageParserAgent:
                             # Get newly visible images
                             new_images = section.find_elements(By.TAG_NAME, 'img')
                             for img in new_images:
-                                url = img.get_attribute('data-src') or img.get_attribute('src')
-                                if url and not is_excluded_url(url):
-                                    high_res_url = get_high_res_url(url)
-                                    
+                                url = self._extract_high_res_url_from_element(img)
+                                if url and not is_excluded_url(url) and url.startswith('http'):
                                     # Check for duplicate by URL
-                                    if high_res_url in seen_urls:
+                                    if url in seen_urls:
                                         logger.debug(f"Carousel: duplicate URL found after click {click_num + 1}, stopping")
                                         return urls  # Return immediately on duplicate
                                     
-                                    seen_urls.add(high_res_url)
-                                    urls.append(high_res_url)
+                                    seen_urls.add(url)
+                                    urls.append(url)
                                     found_new = True
+                                    logger.debug(f"Carousel: Added new image after click {click_num + 1}: {url[:60]}...")
                             
                             # If no new images found, stop clicking
                             if not found_new:
@@ -869,6 +726,42 @@ class ImageParserAgent:
             
         except Exception:
             return False
+    
+    def _normalize_url_for_comparison(self, url: str) -> str:
+        """
+        Normalize URL for comparison by removing query params, fragments, and size indicators.
+        Used to detect duplicate images (e.g., hero vs gallery).
+        
+        Args:
+            url: Image URL
+            
+        Returns:
+            Normalized URL for comparison (base URL without size/query params)
+        """
+        if not url:
+            return url
+        
+        try:
+            # Remove query params and fragments
+            normalized = url.split('?')[0].split('#')[0]
+            
+            # Remove ALL size indicators to compare base URLs
+            # This ensures hero and gallery versions of same image are detected as duplicates
+            normalized = re.sub(r'_AC_S[LXY]\d+_', '_AC_', normalized)
+            normalized = re.sub(r'_AC_SX\d+_SY\d+_', '_AC_', normalized)
+            normalized = re.sub(r'_S[LXY]\d+_', '_', normalized)
+            normalized = re.sub(r'\._[A-Z]{2,}_[A-Z]*\d+_\.', '._AC_.', normalized)
+            
+            # Remove any remaining size patterns
+            normalized = re.sub(r'[SLXY]\d+', '', normalized)
+            
+            # Clean up double underscores/dots
+            normalized = re.sub(r'__+', '_', normalized)
+            normalized = re.sub(r'\.\.+', '.', normalized)
+            
+            return normalized
+        except Exception:
+            return url.split('?')[0].split('#')[0]
     
     def _get_image_size_from_url(self, url: str) -> int:
         """Extract image size from URL for comparison."""

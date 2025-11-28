@@ -118,6 +118,20 @@ def main():
             logger.info(f"Please run: python cleanup_port.py {port}")
             sys.exit(1)
     
+    # Cleanup old tasks on startup
+    cleanup_old_tasks()
+    
+    # Schedule periodic cleanup (every 24 hours)
+    import threading
+    def periodic_cleanup():
+        import time
+        while True:
+            time.sleep(24 * 60 * 60)  # 24 hours
+            cleanup_old_tasks()
+    
+    cleanup_thread = threading.Thread(target=periodic_cleanup, daemon=True)
+    cleanup_thread.start()
+    
     logger.info("=" * 60)
     logger.info(f"Starting Amazon Parser on http://{host}:{port}")
     logger.info(f"Debug mode: {debug}")
@@ -153,6 +167,18 @@ def main():
             except:
                 pass
         cleanup_chrome_processes()
+
+
+def cleanup_old_tasks():
+    """Periodically cleanup old tasks from database."""
+    from core.database import Database
+    db = Database()
+    try:
+        deleted = db.cleanup_old_tasks()
+        if deleted > 0:
+            logger.info(f"Cleaned up {deleted} old tasks")
+    except Exception as e:
+        logger.error(f"Failed to cleanup old tasks: {e}")
 
 
 if __name__ == '__main__':

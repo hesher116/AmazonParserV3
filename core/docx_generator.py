@@ -20,6 +20,8 @@ class DocxGenerator:
     
     def __init__(self):
         self.doc = None
+        self.results = None
+        self.output_dir = None
     
     def generate(self, results: Dict, output_path: str) -> bool:
         """
@@ -34,6 +36,8 @@ class DocxGenerator:
         """
         try:
             self.doc = Document()
+            self.results = results  # Store results for alt text lookup
+            self.output_dir = results.get('output_dir', '')
             self._setup_styles()
             
             text_data = results.get('text', {})
@@ -118,7 +122,7 @@ class DocxGenerator:
         """Setup document styles."""
         # Title style
         style = self.doc.styles['Title']
-        style.font.size = Pt(24)
+        style.font.size = Pt(20)
         style.font.bold = True
         
         # Heading 1
@@ -316,6 +320,7 @@ class DocxGenerator:
             ('product', 'Product Gallery Images'),
             ('aplus_brand', 'A+ Content - From the Brand'),
             ('aplus_product', 'A+ Content - Product Description'),
+            ('aplus_manufacturer', 'A+ Content - From the Manufacturer'),
             ('QAImages', 'Review Images'),
         ]
         
@@ -352,10 +357,17 @@ class DocxGenerator:
             
             # Add to all_images list with section info
             for img_path in img_files:
+                img_path_obj = Path(img_path)
+                try:
+                    relative_path = str(img_path_obj.relative_to(base_path))
+                except:
+                    relative_path = img_path_obj.name
                 all_images.append({
                     'path': img_path,
                     'section': section_title,
-                    'folder': folder_name
+                    'folder': folder_name,
+                    'filename': img_path_obj.name,
+                    'relative_path': relative_path
                 })
         
         # Add images in order, grouping by section
@@ -388,6 +400,48 @@ class DocxGenerator:
                     # Use absolute path to avoid any path issues
                     abs_path = str(img_path_obj.resolve())
                     self.doc.add_picture(abs_path, width=Inches(4.0))
+                    
+                    # Get alt text from results (if available) BEFORE adding caption
+                    alt_text = None
+                    if hasattr(self, 'results') and self.results:
+                        image_alt_texts = self.results.get('image_alt_texts', {})
+                        
+                        # Try multiple path formats
+                        path_variants = [
+                            str(img_path_obj),  # Relative path
+                            str(img_path_obj.resolve()),  # Absolute path
+                            img_info.get('relative_path', img_path_obj.name),  # Relative from output_dir
+                            f"{img_info['folder']}/{img_path_obj.name}",  # With folder prefix
+                            img_path_obj.name,  # Just filename
+                        ]
+                        
+                        # Try each path variant
+                        for path_variant in path_variants:
+                            if path_variant in image_alt_texts:
+                                alt_text = image_alt_texts[path_variant]
+                                break
+                    
+                    # Add image caption (filename) - курсивом, по центру
+                    caption_para = self.doc.add_paragraph()
+                    caption_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    run = caption_para.add_run(img_path_obj.name)
+                    run.font.size = Pt(10)
+                    run.font.italic = True
+                    
+                    # Add alt text if found and longer than 3 characters - зліва, жирним
+                    if alt_text and len(alt_text.strip()) > 3:
+                        alt_para = self.doc.add_paragraph()
+                        alt_para.alignment = WD_ALIGN_PARAGRAPH.LEFT  # Зліва
+                        alt_run = alt_para.add_run(f"Опис з сайту: {alt_text.strip()}")
+                        alt_run.font.size = Pt(9)
+                        alt_run.font.bold = True  # Жирним
+                        alt_run.font.italic = False
+                        logger.debug(f"Added alt text to DOCX: {alt_text[:150]}...")
+                    else:
+                        logger.debug(f"No alt text found for {img_path_obj.name}")
+                    
+                    # Add spacing after image
+                    self.doc.add_paragraph()
                 except Exception as pic_error:
                     # Try with smaller size if first attempt fails
                     logger.debug(f"First attempt failed ({type(pic_error).__name__}), trying smaller size: {pic_error}")
@@ -431,12 +485,7 @@ class DocxGenerator:
                         except Exception as pic_error3:
                             raise pic_error3
                 
-                # Add filename as caption
-                filename = img_path_obj.name
-                p = self.doc.add_paragraph()
-                p.add_run(filename).italic = True
-                
-                logger.debug(f"✓ Added image: {filename}")
+                logger.debug(f"✓ Added image: {img_path_obj.name}")
                 
             except Exception as e:
                 # If image can't be loaded, add placeholder with detailed error

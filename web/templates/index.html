@@ -33,23 +33,51 @@
                             <div class="form-group">
                                 <label>Categories to Parse</label>
                                 <div class="checkbox-group">
+                                    <div class="checkbox-section">
+                                        <div class="checkbox-section-title">Images</div>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="select_all_images" onchange="toggleAllImages(this)">
+                                            <span class="checkmark"></span>
+                                            <strong>Select All Images</strong>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="images_hero" class="image-checkbox">
+                                            <span class="checkmark"></span>
+                                            Hero Image
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="images_gallery" class="image-checkbox">
+                                            <span class="checkmark"></span>
+                                            Product Gallery
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="images_aplus_product" class="image-checkbox">
+                                            <span class="checkmark"></span>
+                                            A+ Product Description
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="images_aplus_brand" class="image-checkbox">
+                                            <span class="checkmark"></span>
+                                            A+ Brand Story
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" name="images_aplus_manufacturer" class="image-checkbox">
+                                            <span class="checkmark"></span>
+                                            A+ From the Manufacturer
+                                        </label>
+                                    </div>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" name="images" checked>
-                                        <span class="checkmark"></span>
-                                        Images (Hero, Gallery, A+)
-                                    </label>
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="text" checked>
+                                        <input type="checkbox" name="text">
                                         <span class="checkmark"></span>
                                         Product Description
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" name="reviews" checked>
+                                        <input type="checkbox" name="reviews">
                                         <span class="checkmark"></span>
                                         Customer Reviews
                                     </label>
                                     <label class="checkbox-label">
-                                        <input type="checkbox" name="qa" checked>
+                                        <input type="checkbox" name="qa">
                                         <span class="checkmark"></span>
                                         Q&A
                                     </label>
@@ -90,13 +118,18 @@
                             </div>
                             <div class="task-meta">
                                 ID: {{ task.id }} | {{ task.created_at[:16] if task.created_at else '' }}
+                                {% if task.results and task.results.processing_time_formatted %}
+                                | Time: {{ task.results.processing_time_formatted }}
+                                {% endif %}
                             </div>
                             {% if task.results %}
                             <div class="task-results">
                                 {% set r = task.results %}
-                                <span title="Hero images">Hero: {{ r.images.hero if r.images else 0 }}</span>
-                                <span title="Gallery images">Gallery: {{ r.images.gallery if r.images else 0 }}</span>
-                                <span title="A+ images">A+: {{ r.images.aplus if r.images else 0 }}</span>
+                                <span title="Hero images">Hero: {{ r.images.hero if r.images and r.images.hero else 0 }}</span>
+                                <span title="Gallery images">Gallery: {{ r.images.gallery if r.images and r.images.gallery else 0 }}</span>
+                                <span title="A+ Product images">A+ Prod: {{ r.images.aplus_product if r.images and r.images.aplus_product else 0 }}</span>
+                                <span title="A+ Brand images">A+ Brand: {{ r.images.aplus_brand if r.images and r.images.aplus_brand else 0 }}</span>
+                                <span title="A+ Manufacturer images">A+ Mfr: {{ r.images.aplus_manufacturer if r.images and r.images.aplus_manufacturer else 0 }}</span>
                                 <span title="Reviews">Reviews: {{ r.reviews_count if r.reviews_count else 0 }}</span>
                                 <span title="Q&A pairs">Q&A: {{ r.qa_count if r.qa_count else 0 }}</span>
                                 <span title="Variants">Variants: {{ r.variants_count if r.variants_count else 0 }}</span>
@@ -116,6 +149,12 @@
     </div>
 
     <script>
+        function toggleAllImages(checkbox) {
+            const imageCheckboxes = document.querySelectorAll('.image-checkbox');
+            imageCheckboxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+            });
+        }
         const parseForm = document.getElementById('parseForm');
         const submitBtn = document.getElementById('submitBtn');
         const progressSection = document.getElementById('progressSection');
@@ -225,7 +264,21 @@
                     return;
                 }
                 
-                tasksList.innerHTML = tasks.map(task => `
+                tasksList.innerHTML = tasks.map(task => {
+                    // Safely extract image counts - handle both number and array cases
+                    let hero = 0, gallery = 0, aplus_product = 0, aplus_brand = 0;
+                    
+                    if (task.results && task.results.images) {
+                        const images = task.results.images;
+                        // Handle both number (count) and array (list) formats
+                        hero = typeof images.hero === 'number' ? images.hero : (Array.isArray(images.hero) ? images.hero.length : 0);
+                        gallery = typeof images.gallery === 'number' ? images.gallery : (Array.isArray(images.gallery) ? images.gallery.length : 0);
+                        aplus_product = typeof images.aplus_product === 'number' ? images.aplus_product : (Array.isArray(images.aplus_product) ? images.aplus_product.length : 0);
+                        aplus_brand = typeof images.aplus_brand === 'number' ? images.aplus_brand : (Array.isArray(images.aplus_brand) ? images.aplus_brand.length : 0);
+                        aplus_manufacturer = typeof images.aplus_manufacturer === 'number' ? images.aplus_manufacturer : (Array.isArray(images.aplus_manufacturer) ? images.aplus_manufacturer.length : 0);
+                    }
+                    
+                    return `
                     <div class="task-item" data-task-id="${task.id}">
                         <div class="task-header">
                             <span class="task-name">${task.product_name || 'Loading...'}</span>
@@ -235,12 +288,15 @@
                         </div>
                         <div class="task-meta">
                             ID: ${task.id} | ${task.created_at ? task.created_at.slice(0, 16) : ''}
+                            ${task.results?.processing_time_formatted ? ` | Time: ${task.results.processing_time_formatted}` : ''}
                         </div>
                         ${task.results ? `
                         <div class="task-results">
-                            <span title="Hero images">Hero: ${task.results.images?.hero || 0}</span>
-                            <span title="Gallery images">Gallery: ${task.results.images?.gallery || 0}</span>
-                            <span title="A+ images">A+: ${task.results.images?.aplus || 0}</span>
+                            <span title="Hero images">Hero: ${hero}</span>
+                            <span title="Gallery images">Gallery: ${gallery}</span>
+                            <span title="A+ Product images">A+ Prod: ${aplus_product}</span>
+                            <span title="A+ Brand images">A+ Brand: ${aplus_brand}</span>
+                            <span title="A+ Manufacturer images">A+ Mfr: ${aplus_manufacturer}</span>
                             <span title="Reviews">Reviews: ${task.results.reviews_count || 0}</span>
                             <span title="Q&A pairs">Q&A: ${task.results.qa_count || 0}</span>
                             <span title="Variants">Variants: ${task.results.variants_count || 0}</span>
@@ -250,7 +306,8 @@
                         <div class="task-error">${task.error_message.slice(0, 100)}...</div>
                         ` : ''}
                     </div>
-                `).join('');
+                    `;
+                }).join('');
                 
             } catch (error) {
                 console.error('Error refreshing tasks:', error);

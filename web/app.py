@@ -79,8 +79,12 @@ def start_parsing():
         
         # Build config from checkboxes
         config = {
-            'images': request.form.get('images') == 'on',
-            'text': request.form.get('text') == 'on',  # Parse text only if checkbox is checked
+            'images_hero': request.form.get('images_hero') == 'on',
+            'images_gallery': request.form.get('images_gallery') == 'on',
+            'images_aplus_product': request.form.get('images_aplus_product') == 'on',
+            'images_aplus_brand': request.form.get('images_aplus_brand') == 'on',
+            'images_aplus_manufacturer': request.form.get('images_aplus_manufacturer') == 'on',
+            'text': request.form.get('text') == 'on',
             'reviews': request.form.get('reviews') == 'on',
             'qa': request.form.get('qa') == 'on',
             'variants': request.form.get('variants') == 'on',
