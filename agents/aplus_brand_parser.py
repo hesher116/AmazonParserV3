@@ -128,9 +128,7 @@ class APlusBrandParser(BaseImageParser):
                         
                         logger.info(f"  [A+ brand] Found {len(images)} img tags in section (including carousel)")
                         
-                        # Scroll to section only if images found
-                        self.browser.scroll_to_element(section)
-                        # No sleep needed - images are already in DOM
+                        # No scroll needed - images are already in DOM dump, we're parsing from static HTML
                         
                         # Process images and group by type (regular vs carousel)
                         image_items = []  # List of dicts: {url, alt_text, is_carousel, img_element}

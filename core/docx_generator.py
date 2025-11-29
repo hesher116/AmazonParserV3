@@ -68,35 +68,39 @@ class DocxGenerator:
             # 3. Basic Info (Brand, ASIN, Price)
             self._add_basic_info(text_data)
             
-            # 4. Product Overview
-            if text_data.get('product_overview'):
-                self._add_section('Product Overview', text_data['product_overview'])
+            # 4. Product Description
+            if text_data.get('product_description'):
+                self._add_text_section('Product Description', text_data['product_description'])
             
-            # 5. About This Item
+            # 5. About This Item (before Product Overview, as on Amazon)
             if text_data.get('about_this_item'):
                 self._add_bullet_list('About This Item', text_data['about_this_item'])
             
-            # 6. Ingredients
-            if text_data.get('ingredients'):
-                self._add_text_section('Ingredients', text_data['ingredients'])
+            # 6. Product Overview
+            if text_data.get('product_overview'):
+                self._add_section('Product Overview', text_data['product_overview'])
             
-            # 7. Important Information
+            # 7. Important Information (includes Ingredients if present)
             if text_data.get('important_information'):
                 self._add_section('Important Information', text_data['important_information'])
             
-            # 8. Technical Details
+            # 8. Sustainability Features
+            if text_data.get('sustainability_features'):
+                self._add_text_section('Sustainability Features', text_data['sustainability_features'])
+            
+            # 9. Technical Details
             if text_data.get('technical_details'):
                 self._add_section('Technical Details', text_data['technical_details'])
             
-            # 9. Product Details
+            # 10. Product Details
             if text_data.get('product_details'):
                 self._add_section('Product Details', text_data['product_details'])
             
-            # 10. Customer Reviews Summary
+            # 12. Customer Reviews Summary
             if reviews_data.get('summary'):
                 self._add_reviews_summary(reviews_data['summary'])
             
-            # 11. Review Details
+            # 13. Review Details
             if reviews_data.get('reviews'):
                 self._add_review_details(reviews_data['reviews'])
             
@@ -159,14 +163,21 @@ class DocxGenerator:
         if text_data.get('asin'):
             info_items.append(f"ASIN: {text_data['asin']}")
         
-        price_data = text_data.get('price', {})
-        if price_data.get('current_price'):
-            price_str = f"Price: {price_data['current_price']}"
-            if price_data.get('original_price'):
-                price_str += f" (was {price_data['original_price']})"
-            if price_data.get('savings'):
-                price_str += f" - {price_data['savings']}"
-            info_items.append(price_str)
+        # Price is now a string in format "Price($): 6.99" or None
+        price_data = text_data.get('price')
+        if price_data:
+            # If it's already a formatted string, use it directly
+            if isinstance(price_data, str):
+                info_items.append(price_data)
+            # Fallback: if it's still a dict (old format), format it
+            elif isinstance(price_data, dict):
+                if price_data.get('current_price'):
+                    price_str = f"Price: {price_data['current_price']}"
+                    if price_data.get('original_price'):
+                        price_str += f" (was {price_data['original_price']})"
+                    if price_data.get('savings'):
+                        price_str += f" - {price_data['savings']}"
+                    info_items.append(price_str)
         
         for item in info_items:
             self.doc.add_paragraph(item)

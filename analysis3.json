@@ -1,0 +1,61 @@
+{
+  "url": "https://www.amazon.com/dp/B08N471RKG/ref=twister_B0FL3YV639?_encoding=UTF8&th=1",
+  "dom_size": 2655243,
+  "sections": {
+    "title": {
+      "selector": "#productTitle",
+      "text_preview": "SUNATORIA Keratin Hair Mask - Deep Conditioner for Dry Damaged Hair - Hydrates, Repairs, Nourishes - Keratin Hair Treatment - Deep Conditioning Hair Mask - Keratina Mascarilla Para el Cabello"
+    },
+    "brand": {
+      "selector": "#bylineInfo",
+      "text": "Visit the SUNATORIA Store"
+    },
+    "product_description": {
+      "selector": "#aplus_feature_div",
+      "heading": "Product description",
+      "text_preview": "Product descriptionPrevious pageNext pagePrevious pageNext pagePrevious pageNext page",
+      "full_length": 85
+    },
+    "product_details": {
+      "selector": "#detailBullets_feature_div",
+      "format": "bullets",
+      "items_count": 7,
+      "sample_items": [
+        "Product Dimensions\n                                            ‏\n                                   ",
+        "UPC\n                                            ‏\n                                            :\n    ",
+        "Manufacturer\n                                            ‏\n                                         ",
+        "ASIN\n                                            ‏\n                                            :\n   ",
+        "Best Sellers Rank:#13,680 in Beauty & Personal Care (See Top 100 in Beauty & Personal Care)#83 inHai"
+      ]
+    },
+    "important_information": {
+      "selector": "#important-information",
+      "subsections_count": 3,
+      "subsections": [
+        {
+          "heading": "Safety Information",
+          "content_preview": ""
+        },
+        {
+          "heading": "Ingredients",
+          "content_preview": ""
+        },
+        {
+          "heading": "Directions",
+          "content_preview": ""
+        }
+      ]
+    },
+    "about_this_item": {
+      "selector": "#feature-bullets ul",
+      "items_count": 5,
+      "sample_items": [
+        "Restorative keratin hair mask for dry, damaged hair with Advanced Hydrolyzed Keratin. Hair moisturiz",
+        "Unique Keratin Formula - Hair mask and conditioner for dry hair with Vitamin E, Omega 3, and 9. Repl",
+        "This Keratin Treatment - Perfect for dry, brittle, or color-treated hair. Acts as hair conditioner, ",
+        "Sodium, Sulfate, and Paraben free hair care. Hydrating hair mask ensures purity and provides repair ",
+        "Revitaliza tu cabello con nuestra mascarilla para el cabello. Tratamiento para cabello seco y maltra"
+      ]
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "url": "https://www.amazon.com/dp/B07W442DN7/?th=1",
+  "dom_size": 2469344,
+  "sections": {
+    "title": {
+      "selector": "#productTitle",
+      "text_preview": "Foot Peeling Mask for Dead Skin Remover & Deep Moisturize | 2 Pairs | Dermatologically Tested - Foot Peel Mask for Dry Cracked Feet - Foot Mask make Soft Baby Feet for Men & Women | Aloe Vera"
+    },
+    "brand": {
+      "selector": "#bylineInfo",
+      "text": "Visit the SUNATORIA Store"
+    },
+    "product_description": {
+      "selector": "#aplus_feature_div",
+      "heading": "Product description",
+      "text_preview": "Product descriptionPrevious pageNext pagePrevious pageNext pagePrevious pageNext pagePrevious pageNext pageI have very dry skin on my feet. Will this mask deal with this problem?This is a special foot mask with skin smoothing and moisturizing ingredients to get rid of coarse, dull, and dead skin on the feet. It is especially effective for the areas around the heel and foot.Does the mask have a strong smell?The foot peel mask doesn’t have any sharp or unpleasant smells, but it has a special own f",
+      "full_length": 1375
+    },
+    "product_details": {
+      "selector": "#detailBullets_feature_div",
+      "format": "bullets",
+      "items_count": 9,
+      "sample_items": [
+        "Is Discontinued By Manufacturer\n                                            ‏\n                      ",
+        "Product Dimensions\n                                            ‏\n                                   ",
+        "Item model number\n                                            ‏\n                                    ",
+        "UPC\n                                            ‏\n                                            :\n    ",
+        "Manufacturer\n                                            ‏\n                                         "
+      ]
+    },
+    "important_information": {
+      "selector": "#important-information",
+      "subsections_count": 1,
+      "subsections": [
+        {
+          "heading": "Safety Information",
+          "content_preview": ""
+        }
+      ]
+    },
+    "about_this_item": {
+      "selector": "#feature-bullets ul",
+      "items_count": 5,
+      "sample_items": [
+        "Remove Dead Skin Easily: This baby feet foot peel starts to exfoliate dead skin in just 1–2 days, re",
+        "Deep Hydration and Repair: Infused with Collagen, Argan Oil, Aloe Vera, and Vitamins A, C, and E, ou",
+        "Gentle & Safe Peeling: Dermatologically tested, this feet exfoliator mask gently peels dead skin wit",
+        "Certified Quality & Safety: Our foot exfoliator is dermatologically tested and holds MSDS, GMP, and ",
+        "Note: For best results, please follow the instructions carefully (refer to the product description)."
+      ]
+    }
+  }
+}

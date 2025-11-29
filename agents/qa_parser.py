@@ -1,9 +1,11 @@
 """Q&A Parser Agent - Parses questions and answers"""
-from typing import Dict, List
+from typing import Dict, List, Optional
 
+from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 
+from agents.base_parser import BaseParser
 from core.browser_pool import BrowserPool
 from utils.text_utils import clean_html_tags, filter_ad_phrases
 from utils.logger import get_logger
@@ -11,11 +13,11 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class QAParserAgent:
+class QAParserAgent(BaseParser):
     """Agent for parsing Q&A from Amazon product page."""
     
-    def __init__(self, browser_pool: BrowserPool):
-        self.browser = browser_pool
+    def __init__(self, browser_pool: BrowserPool, dom_soup: Optional[BeautifulSoup] = None):
+        super().__init__(browser_pool, dom_soup)
     
     def parse(self, max_qa: int = 20) -> Dict:
         """
@@ -52,8 +54,6 @@ class QAParserAgent:
     
     def _get_total_questions(self) -> str:
         """Get total number of questions."""
-        driver = self.browser.get_driver()
-        
         selectors = [
             '#askATFLink',
             '[data-hook="qa-questions-count"]',
@@ -61,13 +61,12 @@ class QAParserAgent:
         ]
         
         for selector in selectors:
-            try:
-                element = driver.find_element(By.CSS_SELECTOR, selector)
-                text = clean_html_tags(element.text)
+            element = self.find_element_by_selector(selector, use_dom=True)
+            if element:
+                text = self.get_text_from_element(element)
+                text = clean_html_tags(text)
                 if text:
                     return text
-            except NoSuchElementException:
-                continue
         
         return None
     
@@ -81,22 +80,9 @@ class QAParserAgent:
         Returns:
             List of Q&A dictionaries
         """
-        driver = self.browser.get_driver()
         qa_pairs = []
         
-        # Scroll to Q&A section
-        try:
-            qa_section = driver.find_element(
-                By.CSS_SELECTOR,
-                '#ask-btf_feature_div, #qa-content, .askWidgetQuestions'
-            )
-            self.browser.scroll_to_element(qa_section)
-            self.browser._random_sleep(0.5, 1.0)
-        except NoSuchElementException:
-            logger.debug("Q&A section not found")
-            return qa_pairs
-        
-        # Find Q&A items
+        # Find Q&A items directly from DOM (no scroll needed - data is already in DOM dump)
         qa_selectors = [
             '.a-section.askTeaserQuestions > div',
             '[data-hook="ask-content"] .a-section',
@@ -104,18 +90,15 @@ class QAParserAgent:
         ]
         
         for selector in qa_selectors:
-            try:
-                qa_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            qa_elements = self.find_elements_by_selector(selector, use_dom=True)
                 
-                if qa_elements:
-                    for element in qa_elements[:max_qa]:
-                        qa_pair = self._parse_single_qa(element)
-                        if qa_pair:
-                            qa_pairs.append(qa_pair)
+            if qa_elements:
+                for element in qa_elements[:max_qa]:
+                    qa_pair = self._parse_single_qa(element)
+                    if qa_pair:
+                        qa_pairs.append(qa_pair)
+                if qa_pairs:
                     break
-                    
-            except NoSuchElementException:
-                continue
         
         # Alternative parsing for different layout
         if not qa_pairs:
@@ -124,7 +107,7 @@ class QAParserAgent:
         return qa_pairs
     
     def _parse_single_qa(self, element) -> Dict:
-        """Parse a single Q&A element."""
+        """Parse a single Q&A element (works with both BeautifulSoup and Selenium)."""
         qa = {
             'question': None,
             'answer': None,
@@ -132,6 +115,9 @@ class QAParserAgent:
             'answer_by': None,
             'answer_date': None
         }
+        
+        if element is None:
+            return None
         
         # Question
         question_selectors = [
@@ -141,14 +127,21 @@ class QAParserAgent:
         ]
         
         for selector in question_selectors:
-            try:
-                q_el = element.find_element(By.CSS_SELECTOR, selector)
-                text = clean_html_tags(q_el.text)
-                if text and '?' in text or text.startswith('Q:'):
+            q_el = None
+            if hasattr(element, 'select_one'):  # BeautifulSoup
+                q_el = element.select_one(selector)
+            elif hasattr(element, 'find_element'):  # Selenium
+                try:
+                    q_el = element.find_element(By.CSS_SELECTOR, selector)
+                except:
+                    continue
+            
+            if q_el:
+                text = self.get_text_from_element(q_el)
+                text = clean_html_tags(text)
+                if text and ('?' in text or text.startswith('Q:')):
                     qa['question'] = text.replace('Q:', '').strip()
                     break
-            except NoSuchElementException:
-                continue
         
         # Answer
         answer_selectors = [
@@ -157,34 +150,50 @@ class QAParserAgent:
         ]
         
         for selector in answer_selectors:
-            try:
-                a_el = element.find_element(By.CSS_SELECTOR, selector)
-                text = clean_html_tags(a_el.text)
+            a_el = None
+            if hasattr(element, 'select_one'):  # BeautifulSoup
+                a_el = element.select_one(selector)
+            elif hasattr(element, 'find_element'):  # Selenium
+                try:
+                    a_el = element.find_element(By.CSS_SELECTOR, selector)
+                except:
+                    continue
+            
+            if a_el:
+                text = self.get_text_from_element(a_el)
+                text = clean_html_tags(text)
                 text = filter_ad_phrases(text)
                 if text and len(text) > 10:
                     qa['answer'] = text.replace('A:', '').strip()
                     break
-            except NoSuchElementException:
-                continue
         
         # Votes
-        try:
-            votes_el = element.find_element(By.CSS_SELECTOR, '.askVoteCount')
-            qa['votes'] = clean_html_tags(votes_el.text)
-        except NoSuchElementException:
-            pass
+        votes_el = None
+        if hasattr(element, 'select_one'):  # BeautifulSoup
+            votes_el = element.select_one('.askVoteCount')
+        elif hasattr(element, 'find_element'):  # Selenium
+            try:
+                votes_el = element.find_element(By.CSS_SELECTOR, '.askVoteCount')
+            except:
+                pass
+        
+        if votes_el:
+            qa['votes'] = clean_html_tags(self.get_text_from_element(votes_el))
         
         # Answer by / Date
-        try:
-            info_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '.a-color-tertiary, .a-size-small.a-color-secondary'
-            )
-            info_text = clean_html_tags(info_el.text)
+        info_el = None
+        if hasattr(element, 'select_one'):  # BeautifulSoup
+            info_el = element.select_one('.a-color-tertiary, .a-size-small.a-color-secondary')
+        elif hasattr(element, 'find_element'):  # Selenium
+            try:
+                info_el = element.find_element(By.CSS_SELECTOR, '.a-color-tertiary, .a-size-small.a-color-secondary')
+            except:
+                pass
+        
+        if info_el:
+            info_text = clean_html_tags(self.get_text_from_element(info_el))
             if 'by' in info_text.lower():
                 qa['answer_by'] = info_text
-        except NoSuchElementException:
-            pass
         
         # Only return if we have question and answer
         if qa['question'] and qa['answer']:
@@ -193,15 +202,28 @@ class QAParserAgent:
     
     def _parse_qa_alternative(self, max_qa: int) -> List[Dict]:
         """Alternative Q&A parsing for different page layouts."""
-        driver = self.browser.get_driver()
         qa_pairs = []
         
         try:
-            # Try finding questions directly
-            questions = driver.find_elements(
-                By.XPATH,
-                "//*[contains(text(), 'Question:') or contains(@class, 'question')]"
-            )
+            # Try finding questions directly from DOM
+            if self.dom_soup:
+                # Use BeautifulSoup for DOM parsing - simplified approach
+                # Find all text nodes containing "Question:"
+                questions = self.dom_soup.find_all(string=lambda text: text and 'Question:' in str(text))
+                # For now, skip DOM parsing for alternative method (too complex)
+                # Fallback to Selenium
+                questions = None
+            
+            # Fallback to Selenium
+            if not questions:
+                driver = self.browser.get_driver()
+                try:
+                    questions = driver.find_elements(
+                        By.XPATH,
+                        "//*[contains(text(), 'Question:') or contains(@class, 'question')]"
+                    )
+                except:
+                    return qa_pairs
             
             for q_el in questions[:max_qa]:
                 try:

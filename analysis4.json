@@ -1,0 +1,257 @@
+{
+  "url": "https://www.amazon.com/dp/B0F3DFMD7Z/ref=sspa_dk_detail_6?psc=1&pd_rd_i=B0F3DFMD7Z&pd_rd_w=MbNxN&content-id=amzn1.sym.953c7d66-4120-4d22-a777-f19dbfa69309&pf_rd_p=953c7d66-4120-4d22-a777-f19dbfa69309&pf_rd_r=KNWW9ST8T3XS01G0G9XB&pd_rd_wg=AZ9cW&pd_rd_r=133b5482-2fe2-447e-a6b2-ee17f2397e9c&sp_csd=d2lkZ2V0TmFtZT1zcF9kZXRhaWwy",
+  "dom_size": 2154576,
+  "sections": {
+    "title": {
+      "selector": "#productTitle",
+      "text_preview": "Hair Growth Oil with 100% Pure Batana, Castor, Rosemary & Pumpkin Seed Oils – Infused with Biotin, Keratin & Vitamin E – Strengthening & Thickening Treatment for Healthy Hair – 4 FL OZ"
+    },
+    "brand": {
+      "selector": "#bylineInfo",
+      "text": "Visit the AKBAN Store"
+    },
+    "price": [
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$12.97"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$3.24"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$16.96"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$4.24"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$12.97"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$12.97"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$3.24"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$15.26"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$4.24"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$11.16"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$16.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$18.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$19.96"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$19.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$15.79"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$19.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$22.19"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$29.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$26.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$16.95"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$19.95"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$12.97$12.97"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$3.24$3.24"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$16.96$16.96"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$4.24$4.24"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$12.9712.97"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$12.9712.97"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$12.97"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$3.24$3.24"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$15.26$15.26"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$16.96"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$4.24$4.24"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$11.16$11.16"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$16.99$16.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.99$9.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.99$7.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$18.99$18.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$19.96$19.96"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$19.99$19.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$15.79$15.79"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$19.99$19.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$22.19$22.19"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$29.99$29.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$26.99$26.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$16.95$16.95"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$19.95$19.95"
+      }
+    ],
+    "product_description": {
+      "selector": "#aplus_feature_div",
+      "heading": "Product description",
+      "text_preview": "Product descriptionAKBAN Hot Sale Hair Oil CollectionBatana Oil for Hair GrowthRosemary Oil for Hair GrowthBatana & Rosemary Blend OilBatana Oil for Hair GrowthBlend Hair Oil for Hair Growth and NourishmentRosemary Oil for Hair GrowthBlend Hair Oil for Hair Growth and NourishmentBatana & Rosemary Blend OilBlend Hair Oil for Hair Growth and Nourishment & Skin Moisturizing120ml/4 fl ozBlend of rosemary batana castor oil is ideal for your quest for luscious hair.150ml/5 fl ozThe various 35 ingredie",
+      "full_length": 624
+    },
+    "from_the_brand": {
+      "selector": "#aplusBrandStory_feature_div",
+      "heading": "From the brand",
+      "text_preview": "From the brandPrevious pageLike many women who love beauty, our founder William’s wife also uses various skin care products, but because her skin is very sensitive, she often suffers from allergies.Therefore, William wanted to find organic and pure ingredients to make products for his wife. To this end, he visited various raw material markets, andAKBANwas thus established.We also hope that these products with love will bring you beauty.Hair Care Oil & Wig SprayVisit the StoreHair Care OilVisit t",
+      "full_length": 611
+    },
+    "product_details": {
+      "selector": "#detailBullets_feature_div",
+      "format": "bullets",
+      "items_count": 6,
+      "sample_items": [
+        "Package Dimensions\n                                            ‏\n                                   ",
+        "Manufacturer\n                                            ‏\n                                         ",
+        "ASIN\n                                            ‏\n                                            :\n   ",
+        "Best Sellers Rank:#38,742 in Beauty & Personal Care (See Top 100 in Beauty & Personal Care)#332 inHa",
+        "#332 inHair Treatment Oils"
+      ]
+    },
+    "important_information": {
+      "selector": "#important-information",
+      "subsections_count": 2,
+      "subsections": [
+        {
+          "heading": "Safety Information",
+          "content_preview": ""
+        },
+        {
+          "heading": "Directions",
+          "content_preview": ""
+        }
+      ]
+    },
+    "about_this_item": {
+      "selector": "#feature-bullets ul",
+      "items_count": 5,
+      "sample_items": [
+        "PROMOTES STRONG HAIR GROWTH - This pure batana blend hair oil is enriched with biotin, vitamin E and",
+        "ALL-NATURAL INGREDIENTS - This hair growth oil blend contains a variety of premium active and natura",
+        "SAY GOODBYE TO FRIZZY, DAMAGED, BRITTLE HAIR - Rosemary oil awakens your scalp. Black castor oil str",
+        "LIGHTWEIGHT HAIR OIL FORMULA - This lightweight, non-greasy blend of hair oils contains antioxidants",
+        "DRIP TIP & COMB APPLICATOR — This Batana Rosemary Blend Hair Growth Oil can revitalize your hair. Th"
+      ]
+    }
+  }
+}

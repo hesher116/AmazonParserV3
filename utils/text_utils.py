@@ -19,18 +19,29 @@ def clean_html_tags(text: str) -> str:
     Returns:
         Clean text without HTML tags
     """
-    if not text:
+    if not text or not isinstance(text, str):
         return ''
     
-    # Use BeautifulSoup to handle HTML properly
-    soup = BeautifulSoup(text, 'html.parser')
-    clean_text = soup.get_text(separator=' ')
+    # If text doesn't look like HTML, return as is
+    if '<' not in text and '>' not in text:
+        return text.strip()
     
-    # Clean up whitespace
-    clean_text = re.sub(r'\s+', ' ', clean_text)
-    clean_text = clean_text.strip()
-    
-    return clean_text
+    try:
+        # Use BeautifulSoup to handle HTML properly
+        soup = BeautifulSoup(text, 'html.parser')
+        clean_text = soup.get_text(separator=' ')
+        
+        # Clean up whitespace
+        clean_text = re.sub(r'\s+', ' ', clean_text)
+        clean_text = clean_text.strip()
+        
+        return clean_text
+    except Exception as e:
+        # If BeautifulSoup fails, use regex fallback
+        logger.debug(f"BeautifulSoup failed, using regex fallback: {e}")
+        clean_text = re.sub(r'<[^>]+>', '', text)
+        clean_text = re.sub(r'\s+', ' ', clean_text)
+        return clean_text.strip()
 
 
 def filter_ad_phrases(text: str) -> str:
@@ -71,33 +82,85 @@ def extract_table_data(element) -> Dict[str, str]:
     """
     result = {}
     
+    if element is None:
+        return result
+    
     try:
-        # Get HTML from element
-        if hasattr(element, 'get_attribute'):
+        # If element is already BeautifulSoup, use it directly
+        if hasattr(element, 'find_all') and hasattr(element, 'prettify'):
+            # Already a BeautifulSoup element
+            soup = element
+        elif hasattr(element, 'get_attribute'):
+            # Selenium WebElement
             html = element.get_attribute('outerHTML')
+            if not html or not isinstance(html, str):
+                return result
+            soup = BeautifulSoup(html, 'html.parser')
         else:
-            html = str(element)
-        
-        soup = BeautifulSoup(html, 'html.parser')
+            # Try to convert to string and parse
+            html = str(element) if element else ''
+            if not html:
+                return result
+            soup = BeautifulSoup(html, 'html.parser')
         
         # Try to find table rows
         rows = soup.find_all('tr')
         for row in rows:
-            cells = row.find_all(['th', 'td'])
-            if len(cells) >= 2:
-                key = clean_html_tags(cells[0].get_text())
-                value = clean_html_tags(cells[1].get_text())
-                if key and value:
-                    result[key] = value
+            if row is None:
+                continue
+            try:
+                cells = row.find_all(['th', 'td'])
+                if len(cells) >= 2:
+                    cell0 = cells[0]
+                    cell1 = cells[1]
+                    if cell0 is not None and cell1 is not None:
+                        try:
+                            # BeautifulSoup elements always have get_text()
+                            if hasattr(cell0, 'get_text'):
+                                key_text = cell0.get_text(strip=True) or ''
+                            else:
+                                key_text = str(cell0) if cell0 else ''
+                            
+                            if hasattr(cell1, 'get_text'):
+                                value_text = cell1.get_text(strip=True) or ''
+                            else:
+                                value_text = str(cell1) if cell1 else ''
+                            
+                            key = clean_html_tags(key_text)
+                            value = clean_html_tags(value_text)
+                            if key and value:
+                                result[key] = value
+                        except (AttributeError, TypeError, Exception) as e:
+                            logger.debug(f"Error extracting cell data: {e}")
+                            continue
+            except Exception as e:
+                logger.debug(f"Error processing row: {e}")
+                continue
         
         # Also try definition lists
         dts = soup.find_all('dt')
         dds = soup.find_all('dd')
         for dt, dd in zip(dts, dds):
-            key = clean_html_tags(dt.get_text())
-            value = clean_html_tags(dd.get_text())
-            if key and value:
-                result[key] = value
+            if dt is None or dd is None:
+                continue
+            try:
+                if hasattr(dt, 'get_text'):
+                    dt_text = dt.get_text(strip=True) or ''
+                else:
+                    dt_text = str(dt) if dt else ''
+                
+                if hasattr(dd, 'get_text'):
+                    dd_text = dd.get_text(strip=True) or ''
+                else:
+                    dd_text = str(dd) if dd else ''
+                
+                key = clean_html_tags(dt_text)
+                value = clean_html_tags(dd_text)
+                if key and value:
+                    result[key] = value
+            except (AttributeError, TypeError, Exception) as e:
+                logger.debug(f"Error extracting dt/dd data: {e}")
+                continue
                 
     except Exception as e:
         logger.error(f"Failed to extract table data: {e}")
@@ -117,21 +180,46 @@ def extract_list_items(element) -> List[str]:
     """
     items = []
     
+    if element is None:
+        return items
+    
     try:
-        if hasattr(element, 'get_attribute'):
+        # If element is already BeautifulSoup, use it directly
+        if hasattr(element, 'find_all') and hasattr(element, 'prettify'):
+            # Already a BeautifulSoup element
+            soup = element
+        elif hasattr(element, 'get_attribute'):
+            # Selenium WebElement
             html = element.get_attribute('outerHTML')
+            if not html or not isinstance(html, str):
+                return items
+            soup = BeautifulSoup(html, 'html.parser')
         else:
-            html = str(element)
-        
-        soup = BeautifulSoup(html, 'html.parser')
+            # Try to convert to string and parse
+            html = str(element) if element else ''
+            if not html:
+                return items
+            soup = BeautifulSoup(html, 'html.parser')
         
         # Find list items
         li_elements = soup.find_all('li')
         for li in li_elements:
-            text = clean_html_tags(li.get_text())
-            text = filter_ad_phrases(text)
-            if text:
-                items.append(text)
+            if li is None:
+                continue
+            try:
+                # BeautifulSoup elements always have get_text()
+                if hasattr(li, 'get_text'):
+                    li_text = li.get_text(strip=True) or ''
+                else:
+                    li_text = str(li) if li else ''
+                
+                text = clean_html_tags(li_text)
+                text = filter_ad_phrases(text)
+                if text:
+                    items.append(text)
+            except (AttributeError, TypeError, Exception) as e:
+                logger.debug(f"Error extracting list item: {e}")
+                continue
                 
     except Exception as e:
         logger.error(f"Failed to extract list items: {e}")

@@ -3,9 +3,11 @@ import re
 from typing import Dict, List, Optional
 from pathlib import Path
 
+from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 
+from agents.base_parser import BaseParser
 from core.browser_pool import BrowserPool
 from utils.text_utils import clean_html_tags, filter_ad_phrases, parse_rating
 from utils.file_utils import save_image_with_dedup, get_high_res_url, is_excluded_url
@@ -14,11 +16,11 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class ReviewsParserAgent:
+class ReviewsParserAgent(BaseParser):
     """Agent for parsing customer reviews from Amazon product page."""
     
-    def __init__(self, browser_pool: BrowserPool):
-        self.browser = browser_pool
+    def __init__(self, browser_pool: BrowserPool, dom_soup: Optional[BeautifulSoup] = None):
+        super().__init__(browser_pool, dom_soup)
         self.md5_cache = set()
     
     def parse(self, output_dir: str, max_reviews: int = 10) -> Dict:
@@ -69,8 +71,6 @@ class ReviewsParserAgent:
         Returns:
             Dictionary with summary data
         """
-        driver = self.browser.get_driver()
-        
         summary = {
             'rating': None,
             'rating_count': None,
@@ -80,45 +80,53 @@ class ReviewsParserAgent:
         }
         
         # Overall rating
-        try:
-            rating_element = driver.find_element(
-                By.CSS_SELECTOR, 
-                '#acrPopover, .a-icon-star span, [data-hook="rating-out-of-text"]'
-            )
-            rating_text = rating_element.get_attribute('title') or rating_element.text
+        rating_element = self.find_element_by_selector(
+            '#acrPopover, .a-icon-star span, [data-hook="rating-out-of-text"]',
+            use_dom=True
+        )
+        if rating_element:
+            rating_text = self.get_attribute_from_element(rating_element, 'title') or \
+                         self.get_text_from_element(rating_element)
             parsed = parse_rating(rating_text)
             summary['rating'] = parsed.get('rating')
-        except NoSuchElementException:
-            pass
         
         # Rating count
-        try:
-            count_element = driver.find_element(
-                By.CSS_SELECTOR,
-                '#acrCustomerReviewText, [data-hook="total-review-count"]'
-            )
-            count_text = count_element.text
+        count_element = self.find_element_by_selector(
+            '#acrCustomerReviewText, [data-hook="total-review-count"]',
+            use_dom=True
+        )
+        if count_element:
+            count_text = self.get_text_from_element(count_element)
             match = re.search(r'([\d,]+)', count_text)
             if match:
                 summary['rating_count'] = match.group(1).replace(',', '')
-        except NoSuchElementException:
-            pass
         
         # Star distribution (histogram)
-        try:
-            histogram = driver.find_element(By.CSS_SELECTOR, '#histogramTable, .cr-widget-Histogram')
-            rows = histogram.find_elements(By.CSS_SELECTOR, 'tr, .a-histogram-row')
+        histogram = self.find_element_by_selector(
+            '#histogramTable, .cr-widget-Histogram',
+            use_dom=True
+        )
+        if histogram:
+            rows = self.find_elements_by_selector('tr, .a-histogram-row', use_dom=True)
             
             for row in rows:
-                try:
-                    star_text = row.find_element(
-                        By.CSS_SELECTOR, 
-                        '.a-text-right a, .a-link-normal'
-                    ).text
-                    percent_text = row.find_element(
-                        By.CSS_SELECTOR, 
-                        '.a-text-right + td, .a-size-small'
-                    ).text
+                star_elem = None
+                percent_elem = None
+                
+                # Try to find star and percent in row
+                if hasattr(row, 'select_one'):  # BeautifulSoup
+                    star_elem = row.select_one('.a-text-right a, .a-link-normal')
+                    percent_elem = row.select_one('.a-text-right + td, .a-size-small')
+                elif hasattr(row, 'find_element'):  # Selenium
+                    try:
+                        star_elem = row.find_element(By.CSS_SELECTOR, '.a-text-right a, .a-link-normal')
+                        percent_elem = row.find_element(By.CSS_SELECTOR, '.a-text-right + td, .a-size-small')
+                    except:
+                        continue
+                
+                if star_elem and percent_elem:
+                    star_text = self.get_text_from_element(star_elem)
+                    percent_text = self.get_text_from_element(percent_elem)
                     
                     star_match = re.search(r'(\d)', star_text)
                     percent_match = re.search(r'(\d+)%', percent_text)
@@ -127,34 +135,24 @@ class ReviewsParserAgent:
                         stars = star_match.group(1)
                         percent = percent_match.group(1)
                         summary['star_distribution'][f'{stars}_star'] = f'{percent}%'
-                except NoSuchElementException:
-                    continue
-                    
-        except NoSuchElementException:
-            pass
         
         # "Customers say" summary
-        try:
-            say_element = driver.find_element(
-                By.CSS_SELECTOR,
-                '[data-hook="cr-summarization-attribute"]'
-            )
-            summary['customers_say'] = clean_html_tags(say_element.text)
-        except NoSuchElementException:
-            pass
+        say_element = self.find_element_by_selector(
+            '[data-hook="cr-summarization-attribute"]',
+            use_dom=True
+        )
+        if say_element:
+            summary['customers_say'] = clean_html_tags(self.get_text_from_element(say_element))
         
         # Key aspects (Softness, Scent, etc.)
-        try:
-            aspects = driver.find_elements(
-                By.CSS_SELECTOR,
-                '.cr-lighthouse-term, [data-hook="cr-lighthouse-term"]'
-            )
-            for aspect in aspects:
-                text = clean_html_tags(aspect.text)
-                if text:
-                    summary['key_aspects'].append(text)
-        except NoSuchElementException:
-            pass
+        aspects = self.find_elements_by_selector(
+            '.cr-lighthouse-term, [data-hook="cr-lighthouse-term"]',
+            use_dom=True
+        )
+        for aspect in aspects:
+            text = clean_html_tags(self.get_text_from_element(aspect))
+            if text:
+                summary['key_aspects'].append(text)
         
         logger.debug(f"Review summary: rating={summary['rating']}, count={summary['rating_count']}")
         return summary
@@ -169,25 +167,30 @@ class ReviewsParserAgent:
         Returns:
             List of review dictionaries
         """
-        driver = self.browser.get_driver()
         reviews = []
         
-        # Scroll to reviews section
-        try:
-            reviews_section = driver.find_element(
-                By.CSS_SELECTOR, 
-                '#cm-cr-dp-review-list, #customerReviews'
-            )
-            self.browser.scroll_to_element(reviews_section)
-        except NoSuchElementException:
-            logger.warning("Reviews section not found")
-            return reviews
-        
-        # Find individual reviews
-        review_elements = driver.find_elements(
-            By.CSS_SELECTOR,
-            '[data-hook="review"], .review, .a-section.review'
+        # Try to find reviews from DOM first (faster, no scroll needed)
+        review_elements = self.find_elements_by_selector(
+            '[data-hook="review"], .review, .a-section.review',
+            use_dom=True
         )
+        
+        # If not found in DOM, try Selenium (may need scroll for lazy-loaded reviews)
+        if not review_elements:
+            driver = self.browser.get_driver()
+            try:
+                reviews_section = driver.find_element(
+                    By.CSS_SELECTOR, 
+                    '#cm-cr-dp-review-list, #customerReviews'
+                )
+                self.browser.scroll_to_element(reviews_section)
+                review_elements = driver.find_elements(
+                    By.CSS_SELECTOR,
+                    '[data-hook="review"], .review, .a-section.review'
+                )
+            except NoSuchElementException:
+                logger.warning("Reviews section not found")
+                return reviews
         
         logger.info(f"Found {len(review_elements)} reviews on page")
         

@@ -2,16 +2,19 @@
 import re
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Callable
 from pathlib import Path
 from collections import defaultdict
 
+from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
 
 from core.browser_pool import BrowserPool
 from core.database import Database
 from core.docx_generator import DocxGenerator
+from core.parsing_metrics import ParsingMetrics
 from agents.hero_parser import HeroParser
 from agents.gallery_parser import GalleryParser
 from agents.aplus_product_parser import APlusProductParser
@@ -38,15 +41,16 @@ class Coordinator:
         self.results: Dict = {}
         self.output_dir: Optional[str] = None
         self.progress_callback: Optional[Callable] = None
+        # DOM dump for atomic parsing
+        self.dom_dump: Optional[str] = None
+        self.dom_soup: Optional[object] = None
         # Selector cache for A+ parsers
         from collections import defaultdict
         self.selector_cache: Dict[str, List[str]] = defaultdict(list) if Settings.SELECTOR_CACHE_ENABLED else {}
         # Performance metrics
         self.performance_metrics: Dict[str, float] = {}
-        # Selector cache for A+ parsers
-        self.selector_cache: Dict[str, List[str]] = defaultdict(list) if Settings.SELECTOR_CACHE_ENABLED else {}
-        # Performance metrics
-        self.performance_metrics: Dict[str, float] = {}
+        # Parsing metrics and selector statistics
+        self.metrics = ParsingMetrics(max_selector_cache_size=50)
     
     def run_parsing(
         self,
@@ -95,14 +99,25 @@ class Coordinator:
             if not self.browser_pool.navigate_to(url):
                 raise Exception("Failed to load product page")
             
+            # Save DOM dump for atomic parsing (all agents work with same snapshot)
+            self._update_progress('Saving page snapshot...', 12)
+            self._save_dom_dump()
+            
             # Get product name for folder (always needed, but parse full text only if checkbox is checked)
             product_name = None
             if config.get('text', False):
                 # Full text parsing
                 self._update_progress('Parsing product info...', 15)
-                text_agent = TextParserAgent(self.browser_pool)
-                self.results['text'] = self._run_with_retry(text_agent.parse)
-                product_name = self.results['text'].get('title', 'Unknown Product')
+                text_agent = TextParserAgent(self.browser_pool, self.dom_soup)
+                text_agent.metrics = self.metrics  # Pass metrics to agent
+                text_result = self._run_with_retry(text_agent.parse)
+                self.results['text'] = text_result
+                product_name = text_result.get('title', 'Unknown Product')
+                
+                # Record parsing metrics
+                has_title = bool(text_result.get('title'))
+                has_data = has_title or bool(text_result.get('brand')) or bool(text_result.get('price'))
+                self.metrics.record_parsing_result('text', success=has_data, partial=has_title and not has_data)
             else:
                 # Just get title for folder name without full parsing
                 self._update_progress('Getting product name...', 15)
@@ -182,15 +197,11 @@ class Coordinator:
                     self.results['errors'].append(f"Image parsing: {str(e)}")
                 current_progress += 20
             
-            if config.get('reviews', False):
-                self._update_progress('Parsing reviews...', current_progress)
-                self._run_reviews_agent()
+            # Parse reviews and Q&A in parallel (they are independent)
+            if config.get('reviews', False) or config.get('qa', False):
+                self._update_progress('Parsing reviews and Q&A...', current_progress)
+                self._run_parallel_agents(config)
                 current_progress += 20
-            
-            if config.get('qa', False):
-                self._update_progress('Parsing Q&A...', current_progress)
-                self._run_qa_agent()
-                current_progress += 15
             
             # Validate results (only if we have more than just images)
             has_other_data = config.get('reviews', False) or config.get('qa', False)
@@ -220,6 +231,26 @@ class Coordinator:
             
             # Update task as completed
             self._update_progress('Completed!', 100)
+            
+            # Save metrics summary to results
+            metrics_summary = self.metrics.get_summary()
+            self.results['metrics'] = metrics_summary
+            
+            # Log metrics summary
+            logger.info("=" * 80)
+            logger.info("PARSING METRICS SUMMARY")
+            logger.info("=" * 80)
+            for category, stats in metrics_summary['parsing_metrics'].items():
+                total = stats['success'] + stats['partial'] + stats['failed']
+                if total > 0:
+                    success_rate = (stats['success'] / total) * 100
+                    logger.info(f"{category.upper()}: {stats['success']} success, {stats['partial']} partial, {stats['failed']} failed ({success_rate:.1f}% success rate)")
+            
+            if metrics_summary['fallback_usage']:
+                logger.info(f"Fallback usage: {dict(metrics_summary['fallback_usage'])}")
+            
+            logger.info("=" * 80)
+            
             self.db.update_task(
                 task_id,
                 status='completed',
@@ -246,6 +277,17 @@ class Coordinator:
         logger.info(f"Progress: {percent}% - {message}")
         if self.progress_callback:
             self.progress_callback(message, percent)
+    
+    def _save_dom_dump(self):
+        """Save page source as DOM dump for atomic parsing."""
+        try:
+            self.dom_dump = self.browser_pool.get_page_source()
+            self.dom_soup = BeautifulSoup(self.dom_dump, 'html.parser')
+            logger.info(f"DOM dump saved ({len(self.dom_dump)} chars)")
+        except Exception as e:
+            logger.warning(f"Failed to save DOM dump: {e}")
+            self.dom_dump = None
+            self.dom_soup = None
     
     def _log_performance(self, category: str, duration: float):
         """Log performance metrics for analysis."""
@@ -345,7 +387,7 @@ class Coordinator:
         results = {}
         
         # Text
-        text_agent = TextParserAgent(self.browser_pool)
+        text_agent = TextParserAgent(self.browser_pool, self.dom_soup)
         results['text'] = self._run_with_retry(text_agent.parse)
         
         # Images - use same logic as main parsing
@@ -534,8 +576,45 @@ class Coordinator:
         self.results['images'] = images_result
         self._log_performance('Total image parsing', time.time() - start_time)
     
+    def _run_parallel_agents(self, config: Dict):
+        """Run independent agents in parallel (reviews, qa)."""
+        tasks = []
+        
+        # Prepare tasks
+        if config.get('reviews', False):
+            def run_reviews():
+                agent = ReviewsParserAgent(self.browser_pool, self.dom_soup)
+                max_reviews = 10
+                return self._run_with_retry(agent.parse, self.output_dir, max_reviews)
+            tasks.append(('reviews', run_reviews))
+        
+        if config.get('qa', False):
+            def run_qa():
+                agent = QAParserAgent(self.browser_pool, self.dom_soup)
+                return self._run_with_retry(agent.parse)
+            tasks.append(('qa', run_qa))
+        
+        # Run tasks in parallel
+        if len(tasks) == 1:
+            # Single task - run directly (no need for thread pool)
+            name, func = tasks[0]
+            self.results[name] = func()
+        elif len(tasks) > 1:
+            # Multiple tasks - run in parallel
+            with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+                futures = {executor.submit(func): name for name, func in tasks}
+                
+                for future in as_completed(futures):
+                    name = futures[future]
+                    try:
+                        self.results[name] = future.result()
+                        logger.info(f"{name.capitalize()} parsing completed")
+                    except Exception as e:
+                        logger.error(f"{name.capitalize()} parsing failed: {e}")
+                        self.results[name] = {'errors': [str(e)]}
+    
     def _run_reviews_agent(self):
-        """Run reviews parsing agent."""
+        """Run reviews parsing agent (legacy method, use _run_parallel_agents instead)."""
         agent = ReviewsParserAgent(self.browser_pool)
         max_reviews = 10  # Default, can be configured
         self.results['reviews'] = self._run_with_retry(
@@ -545,7 +624,7 @@ class Coordinator:
         )
     
     def _run_qa_agent(self):
-        """Run Q&A parsing agent."""
+        """Run Q&A parsing agent (legacy method, use _run_parallel_agents instead)."""
         agent = QAParserAgent(self.browser_pool)
         self.results['qa'] = self._run_with_retry(agent.parse)
     

@@ -1,0 +1,393 @@
+{
+  "url": "https://www.amazon.com/TEAWOO-Leak-Proof-Moisturizing-Pedicure-Stickers/dp/B0F7LDY1CD?th=1",
+  "dom_size": 2276487,
+  "sections": {
+    "title": {
+      "selector": "#productTitle",
+      "text_preview": "200PCS Plastic Foot Covers for Feet, Leak-Proof Plastic Foot Masks for Moisturizing Feet, Pedicure & Foot Care, 200 Stickers for Snug Closure Included (Fits up to USA 9)"
+    },
+    "brand": {
+      "selector": "#bylineInfo",
+      "text": "Brand: TEAWOO"
+    },
+    "price": [
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$6.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$6.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$6.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.03"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$6.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.98"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.19"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$22.16"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.49"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$8.49"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$5.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.59"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$2.66"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$15.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$2.00"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$19.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.89"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$8.41"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$8.41"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$1.89"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$5.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$0.56"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$5.94"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$2.97"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$7.44"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$11.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$17.99"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$9.50"
+      },
+      {
+        "selector": ".a-price .a-offscreen",
+        "text": "$17.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.996.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.996.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.03$0.03"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$6.99$6.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.98$7.98"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.19$7.19"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$22.16$22.16"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.49$9.49"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$8.49$8.49"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$5.99$5.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.59$9.59"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.99$7.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$2.66$2.66"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.99$9.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$15.99$15.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$2.00$2.00"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$19.99$19.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.89$9.89"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$8.41$8.41"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$8.41$8.41"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.99$7.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$1.89$1.89"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.99$9.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$5.99$5.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$0.56$0.56"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$5.94$5.94"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$2.97$2.97"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$7.44$7.44"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$11.99$11.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$17.99$17.99"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$9.50$9.50"
+      },
+      {
+        "selector": "span.a-price",
+        "text": "$17.99$17.99"
+      }
+    ],
+    "product_description": {
+      "selector": "#productDescription_feature_div",
+      "heading": "Product Description",
+      "text_preview": "Product DescriptionTEAWOO 200PCS Plastic Foot Covers for Feet, Leak-Proof Plastic Foot Masks for Moisturizing Feet, Pedicure & Foot Care, 200 Stickers for Snug Closure Included (Fits up USA 9)",
+      "full_length": 192
+    },
+    "from_the_brand": {
+      "selector": "#aplusBrandStory_feature_div",
+      "heading": "From the brand",
+      "text_preview": "From the brandPrevious pageExplore more TEAWOO productsExplore more TEAWOO productsExplore more TEAWOO productsNext page",
+      "full_length": 120
+    },
+    "product_details": {
+      "selector": "#detailBullets_feature_div",
+      "format": "bullets",
+      "items_count": 7,
+      "sample_items": [
+        "Package Dimensions\n                                            ‏\n                                   ",
+        "Date First Available\n                                            ‏\n                                 ",
+        "Manufacturer\n                                            ‏\n                                         ",
+        "ASIN\n                                            ‏\n                                            :\n   ",
+        "Best Sellers Rank:#30,214 in Beauty & Personal Care (See Top 100 in Beauty & Personal Care)#27 inMoi"
+      ]
+    },
+    "important_information": {
+      "selector": "#important-information",
+      "subsections_count": 3,
+      "subsections": [
+        {
+          "heading": "Safety Information",
+          "content_preview": ""
+        },
+        {
+          "heading": "Directions",
+          "content_preview": ""
+        },
+        {
+          "heading": "Legal Disclaimer",
+          "content_preview": ""
+        }
+      ]
+    },
+    "about_this_item": {
+      "selector": "#feature-bullets ul",
+      "items_count": 5,
+      "sample_items": [
+        "【2 SIZES FOR PERFECT FIT】Available in 2 sizes: Small (fits up to US 9) and Large (fits up to US 13).",
+        "【DURABLE & LEAK-PROOF DESIGN】Made from thickened PE plastic with ribbed anti-slip texture, these foo",
+        "【EASY APPLICATION FOR SALON-LEVEL CARE】Simply apply moisturizer/serum, slip on the cover, and secure",
+        "【INTENSIVE MOISTURE RETENTION】Designed to enhance foot care products, these covers trap moisture to ",
+        "【VALUE PACK + GIFTABLE DESIGN】200-count bulk set ensures long-term use for families or salons. Compa"
+      ]
+    }
+  }
+}
