@@ -3,13 +3,11 @@
 # Use individual parsers: HeroParser, GalleryParser, APlusProductParser, APlusBrandParser
 from .text_parser import TextParserAgent
 from .reviews_parser import ReviewsParserAgent
-from .variant_detector import VariantDetectorAgent
 from .validator import ValidatorAgent
 
 __all__ = [
     'TextParserAgent',
     'ReviewsParserAgent',
-    'VariantDetectorAgent',
     'ValidatorAgent'
 ]
 

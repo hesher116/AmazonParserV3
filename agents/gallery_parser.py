@@ -267,7 +267,7 @@ class GalleryParser(BaseImageParser):
         try:
             gallery_container = driver.find_element(By.CSS_SELECTOR, '#altImages, #imageBlock_feature_div')
             self.browser.scroll_to_element(gallery_container)
-            self.browser._random_sleep(0.2, 0.4)
+            # No delay needed - scroll_to_element now waits for element visibility
         except:
             pass
         

@@ -27,6 +27,7 @@ class TextParserAgent(BaseParser):
     
     def __init__(self, browser_pool: BrowserPool, dom_soup: Optional[BeautifulSoup] = None):
         super().__init__(browser_pool, dom_soup)
+        self._qa_count = 0  # Track Q&A pairs count
     
     def parse(self) -> Dict:
         """
@@ -51,6 +52,7 @@ class TextParserAgent(BaseParser):
             'important_information': {},
             'technical_details': {},
             'ingredients': None,
+            'qa_count': 0,  # Count of Q&A pairs found
             'errors': []
         }
         
@@ -64,6 +66,9 @@ class TextParserAgent(BaseParser):
             results['from_the_brand'] = self._parse_from_the_brand()
             results['sustainability_features'] = self._parse_sustainability_features()
             results['product_description'] = self._parse_product_description()
+            # Update Q&A count if Q&A was found
+            if self._qa_count > 0:
+                results['qa_count'] = self._qa_count
             results['product_details'] = self._parse_product_details()
             results['important_information'] = self._parse_important_information()
             results['technical_details'] = self._parse_technical_details()
@@ -132,62 +137,213 @@ class TextParserAgent(BaseParser):
     
     def _parse_price(self) -> Optional[str]:
         """Parse price information and return in format 'Price($): 6.99'."""
-        # Try to find main price block first (more specific - Amazon structure)
+        logger.debug("Starting price parsing...")
+        
+        # Strategy 1: Check hidden input field for variant products (most reliable)
+        logger.debug("Trying hidden price input field...")
+        hidden_price_input = self.find_element_by_selector('#twister-plus-price-data-price', use_dom=True)
+        if hidden_price_input:
+            price_value = self.get_attribute_from_element(hidden_price_input, 'value')
+            if price_value:
+                try:
+                    # Validate it's a valid price number
+                    float(price_value)
+                    result = f"Price($): {price_value}"
+                    logger.info(f"✓ Price found from hidden input: {result}")
+                    return result
+                except (ValueError, TypeError):
+                    logger.debug(f"Hidden price value is not a valid number: {price_value}")
+        
+        # Strategy 2: Try main price blocks (prioritize buybox and main price areas)
         main_price_blocks = [
+            '#apexPriceToPay',  # Most reliable - "Price to Pay"
             '#corePriceDisplay_desktop_feature_div',
             '#corePrice_feature_div',
             '#priceblock_ourprice',
             '#priceblock_dealprice',
             '#priceblock_saleprice',
-            '#apexPriceToPay',
+            '#priceBlock_feature_div',
         ]
         
         for block_selector in main_price_blocks:
+            logger.debug(f"Trying price block: {block_selector}")
             block = self.find_element_by_selector(block_selector, use_dom=True)
             if block:
-                # Find price within this block - prioritize .a-offscreen
+                logger.debug(f"Found price block: {block_selector}")
+                
+                # Check if this block contains .priceToPay element (common in sale scenarios)
+                price_to_pay_in_block = False
                 if hasattr(block, 'select_one'):  # BeautifulSoup
-                    price_el = block.select_one('.a-price .a-offscreen, .a-offscreen, .a-price-whole')
+                    price_to_pay_in_block = block.select_one('.priceToPay') is not None
                 else:  # Selenium
                     try:
-                        price_el = block.find_element(By.CSS_SELECTOR, '.a-price .a-offscreen, .a-offscreen, .a-price-whole')
+                        price_to_pay_in_block = block.find_element(By.CSS_SELECTOR, '.priceToPay') is not None
                     except:
-                        price_el = block
+                        pass
                 
-                if price_el:
-                    price_text = self.get_text_from_element(price_el)
+                # For priceToPay blocks or blocks containing priceToPay, prioritize combining whole+fraction
+                if '.priceToPay' in block_selector or price_to_pay_in_block:
+                    # First try to combine a-price-whole and a-price-fraction (for sale prices)
+                    whole_el = None
+                    fraction_el = None
+                    if hasattr(block, 'select_one'):  # BeautifulSoup
+                        whole_el = block.select_one('.a-price-whole')
+                        fraction_el = block.select_one('.a-price-fraction')
+                    else:  # Selenium
+                        try:
+                            whole_el = block.find_element(By.CSS_SELECTOR, '.a-price-whole')
+                            fraction_el = block.find_element(By.CSS_SELECTOR, '.a-price-fraction')
+                        except:
+                            pass
+                    
+                    if whole_el and fraction_el:
+                        whole_text = self.get_text_from_element(whole_el).replace('.', '').strip()
+                        fraction_text = self.get_text_from_element(fraction_el).strip()
+                        if whole_text and fraction_text:
+                            try:
+                                combined_price = f"${whole_text}.{fraction_text}"
+                                parsed = parse_price(combined_price)
+                                if parsed['current_price']:
+                                    price_value = parsed['current_price'].replace('$', '').replace(',', '')
+                                    result = f"Price($): {price_value}"
+                                    logger.info(f"✓ Price found (combined whole+fraction): {result}")
+                                    return result
+                            except Exception as e:
+                                logger.debug(f"Failed to combine price parts: {e}")
+                
+                # Find price within this block - prioritize .a-offscreen
+                price_selectors_in_block = [
+                    '.priceToPay .a-offscreen',  # Specific to main price
+                    '.a-price .a-offscreen',
+                    '.a-offscreen',
+                ]
+                
+                for price_selector in price_selectors_in_block:
+                    if hasattr(block, 'select_one'):  # BeautifulSoup
+                        price_el = block.select_one(price_selector)
+                    else:  # Selenium
+                        try:
+                            price_el = block.find_element(By.CSS_SELECTOR, price_selector)
+                        except:
+                            price_el = None
+                    
+                    if price_el:
+                        price_text = self.get_text_from_element(price_el)
+                        logger.debug(f"Price text extracted: {price_text[:50] if price_text else 'None'}")
+                        if price_text:
+                            parsed = parse_price(price_text)
+                            if parsed['current_price']:
+                                price_value = parsed['current_price'].replace('$', '').replace(',', '')
+                                if price_value:
+                                    result = f"Price($): {price_value}"
+                                    logger.info(f"✓ Price found: {result}")
+                                    return result
+                
+                # Try to combine a-price-whole and a-price-fraction if separate (fallback)
+                whole_el = None
+                fraction_el = None
+                if hasattr(block, 'select_one'):  # BeautifulSoup
+                    whole_el = block.select_one('.a-price-whole')
+                    fraction_el = block.select_one('.a-price-fraction')
+                else:  # Selenium
+                    try:
+                        whole_el = block.find_element(By.CSS_SELECTOR, '.a-price-whole')
+                        fraction_el = block.find_element(By.CSS_SELECTOR, '.a-price-fraction')
+                    except:
+                        pass
+                
+                if whole_el and fraction_el:
+                    whole_text = self.get_text_from_element(whole_el).replace('.', '').strip()
+                    fraction_text = self.get_text_from_element(fraction_el).strip()
+                    if whole_text and fraction_text:
+                        try:
+                            combined_price = f"${whole_text}.{fraction_text}"
+                            parsed = parse_price(combined_price)
+                            if parsed['current_price']:
+                                price_value = parsed['current_price'].replace('$', '').replace(',', '')
+                                result = f"Price($): {price_value}"
+                                logger.info(f"✓ Price found (combined): {result}")
+                                return result
+                        except Exception as e:
+                            logger.debug(f"Failed to combine price parts: {e}")
+        
+        # Strategy 3: Try direct price selectors in buybox/main area (more specific context)
+        logger.debug("Trying direct price selectors in buybox context...")
+        price_selectors = [
+            '#apexPriceToPay .a-offscreen',
+            '.priceToPay .a-offscreen',
+            '.a-price.priceToPay .a-offscreen',
+            '#buybox .a-price .a-offscreen',  # In buybox context
+            '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+            '#corePrice_feature_div .a-price .a-offscreen',
+            '#priceBlock_feature_div .a-price .a-offscreen',
+            '[data-a-color="price"] .a-offscreen',  # Price-colored elements
+        ]
+        
+        for selector in price_selectors:
+            logger.debug(f"Trying fallback selector: {selector}")
+            element = self.find_element_by_selector(selector, use_dom=True)
+            if element:
+                price_text = self.get_text_from_element(element)
+                logger.debug(f"Fallback price text: {price_text[:50] if price_text else 'None'}")
+                if price_text:
                     parsed = parse_price(price_text)
                     if parsed['current_price']:
                         price_value = parsed['current_price'].replace('$', '').replace(',', '')
                         if price_value:
                             result = f"Price($): {price_value}"
-                            logger.debug(f"Price found: {result}")
+                            logger.info(f"✓ Price found (fallback): {result}")
                             return result
         
-        # Fallback: try direct price selectors in main price area only
-        price_selectors = [
-            '#apexPriceToPay .a-offscreen',
-            '.a-price.a-text-price.a-size-medium.apexPriceToPay .a-offscreen',
-            '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-            '#corePrice_feature_div .a-price .a-offscreen',
-            '#priceBlock_feature_div .a-price .a-offscreen',
-            '#price .a-price .a-offscreen',
-            '.a-price.a-text-price .a-offscreen',  # More generic but still in price block
-        ]
+        # Strategy 4: Last resort - find all prices and pick the most likely main price
+        logger.debug("Trying last resort: finding all prices and selecting main one...")
+        all_price_elements = self.find_elements_by_selector('.a-price .a-offscreen', use_dom=True)
+        if all_price_elements:
+            # Filter prices that are likely main prices (not unit prices, not in carousels)
+            candidate_prices = []
+            for price_el in all_price_elements:
+                price_text = self.get_text_from_element(price_el)
+                if price_text:
+                    parsed = parse_price(price_text)
+                    if parsed['current_price']:
+                        price_value = parsed['current_price'].replace('$', '').replace(',', '')
+                        if price_value:
+                            try:
+                                price_num = float(price_value)
+                                # Filter out very small prices (likely unit prices) and very large (likely bundles)
+                                if 0.01 <= price_num <= 10000:
+                                    # Get parent context to check if it's a unit price or in carousel
+                                    parent_text = ''
+                                    if hasattr(price_el, 'parent'):  # BeautifulSoup
+                                        parent = price_el.parent
+                                        if parent:
+                                            parent_text = self.get_text_from_element(parent)
+                                    elif hasattr(price_el, 'find_element'):  # Selenium
+                                        try:
+                                            parent = price_el.find_element(By.XPATH, '..')
+                                            parent_text = self.get_text_from_element(parent)
+                                        except:
+                                            pass
+                                    
+                                    # Skip if it's clearly a unit price or in carousel
+                                    if parent_text:
+                                        if 'per ' in parent_text.lower() or 'carousel' in parent_text.lower():
+                                            continue
+                                    
+                                    candidate_prices.append((price_num, price_value))
+                            except (ValueError, TypeError):
+                                continue
+            
+            if candidate_prices:
+                # Sort by price and take the median price (most stable)
+                candidate_prices.sort()
+                # Take the median price
+                main_price = candidate_prices[len(candidate_prices) // 2][1]
+                result = f"Price($): {main_price}"
+                logger.info(f"✓ Price found (last resort): {result}")
+                return result
         
-        for selector in price_selectors:
-            element = self.find_element_by_selector(selector, use_dom=True)
-            if element:
-                price_text = self.get_text_from_element(element)
-                parsed = parse_price(price_text)
-                if parsed['current_price']:
-                    price_value = parsed['current_price'].replace('$', '').replace(',', '')
-                    if price_value:
-                        result = f"Price($): {price_value}"
-                        logger.debug(f"Price found: {result}")
-                        return result
-        
-        logger.debug("Price not found")
+        logger.debug("Price not found after trying all selectors (this may be normal for some products)")
         return None
     
     def _parse_product_description(self) -> Optional[str]:
@@ -229,7 +385,10 @@ class TextParserAgent(BaseParser):
                             text = clean_html_tags(text)
                             text = filter_ad_phrases(text)
                             if text and len(text) > 20:
-                                logger.debug(f"Product description (Q&A) found: {len(qa_texts)} pairs")
+                                qa_count = len(qa_texts)
+                                logger.info(f"Product description (Q&A) found: {qa_count} pairs")
+                                # Store Q&A count for later use
+                                self._qa_count = qa_count
                                 return text
                     
                     # Try to extract structured content (tables, columns)
@@ -299,8 +458,13 @@ class TextParserAgent(BaseParser):
                                 logger.debug(f"Product description (columns) found: {len(text)} chars")
                                 return text
                     
-                    # Fallback: regular text extraction
-                    text = element.get_text(separator=' ', strip=True)
+                    # Try to extract structured text with headings
+                    structured_text = self._extract_structured_description(element)
+                    if structured_text:
+                        text = structured_text
+                    else:
+                        # Fallback: regular text extraction
+                        text = element.get_text(separator=' ', strip=True)
                 else:  # Selenium
                     # Try to get text excluding navigation
                     try:
@@ -316,7 +480,10 @@ class TextParserAgent(BaseParser):
                 
                 # Remove common navigation text
                 text = re.sub(r'(Previous page|Next page|Product description|Product Description)', '', text, flags=re.IGNORECASE)
-                text = re.sub(r'\s+', ' ', text).strip()
+                
+                # Only collapse whitespace if it's not structured text (structured text has \n\n for sections)
+                if not text.startswith('STRUCTURED_DESCRIPTION:'):
+                    text = re.sub(r'\s+', ' ', text).strip()
                 
                 if text and len(text) > 20:  # Minimum meaningful length
                     logger.debug(f"Product description found: {len(text)} chars")
@@ -324,6 +491,114 @@ class TextParserAgent(BaseParser):
         
         logger.debug("Product description not found")
         return None
+    
+    def _extract_structured_description(self, element) -> Optional[str]:
+        """
+        Extract structured description with headings and paragraphs.
+        
+        Analyzes HTML structure: <p><span>HEADING</span><br>CONTENT</span></p>
+        
+        Returns text in format:
+        STRUCTURED_DESCRIPTION:
+        HEADING: Heading Text
+        CONTENT: Paragraph content
+        
+        Args:
+            element: BeautifulSoup element
+            
+        Returns:
+            Structured text or None
+        """
+        if not hasattr(element, 'select'):
+            return None
+        
+        try:
+            sections = []
+            
+            # Find all paragraph elements
+            paragraphs = element.select('p')
+            
+            for para in paragraphs:
+                # Skip empty paragraphs
+                if not para.get_text(strip=True):
+                    continue
+                
+                # Look for pattern: <span>TEXT</span><br>CONTENT
+                # Find first span that might be a heading
+                first_span = para.find('span')
+                if not first_span:
+                    continue
+                
+                heading_text = first_span.get_text(strip=True).strip('"').strip("'")
+                
+                # Check if this looks like a heading (all caps, short)
+                is_heading = heading_text.isupper() and len(heading_text.split()) <= 8 and len(heading_text) > 3
+                
+                if is_heading:
+                    # Check if there's a <br> after this span
+                    next_elem = first_span.next_sibling
+                    has_br = False
+                    
+                    # Skip whitespace and find <br>
+                    while next_elem:
+                        if hasattr(next_elem, 'name'):
+                            if next_elem.name == 'br':
+                                has_br = True
+                                break
+                            elif next_elem.name in ['span', 'p']:
+                                break
+                        next_elem = next_elem.next_sibling
+                    
+                    if has_br:
+                        # Get all text after <br> in this paragraph
+                        # Find the <br> tag
+                        br_tag = first_span.find_next_sibling('br')
+                        if br_tag:
+                            # Get all content after <br>
+                            content_parts = []
+                            for elem in br_tag.next_siblings:
+                                if hasattr(elem, 'get_text'):
+                                    text = elem.get_text(strip=True)
+                                    if text and text != heading_text:
+                                        content_parts.append(text)
+                                elif isinstance(elem, str):
+                                    text = elem.strip()
+                                    if text and text != heading_text:
+                                        content_parts.append(text)
+                            
+                            content_text = ' '.join(content_parts).strip()
+                            
+                            # If no content found after <br>, try getting all text from paragraph and removing heading
+                            if not content_text:
+                                para_full_text = para.get_text(strip=True)
+                                # Remove heading from start
+                                content_text = para_full_text.replace(heading_text, '', 1).strip()
+                                # Remove leading | if present
+                                content_text = content_text.lstrip('|').strip()
+                            
+                            if content_text:
+                                sections.append({
+                                    'heading': heading_text,
+                                    'content': content_text
+                                })
+            
+            # If we found structured sections, format them
+            if sections:
+                formatted_parts = ['STRUCTURED_DESCRIPTION:']
+                for section in sections:
+                    formatted_parts.append(f"HEADING: {section['heading']}")
+                    formatted_parts.append(f"CONTENT: {section['content']}")
+                    formatted_parts.append('')  # Empty line between sections
+                
+                result = '\n'.join(formatted_parts).strip()
+                logger.debug(f"Extracted structured description with {len(sections)} sections")
+                return result
+            
+            return None
+            
+        except Exception as e:
+            logger.debug(f"Error extracting structured description: {e}")
+            return None
     
     def _parse_asin(self) -> Optional[str]:
         """Parse ASIN from URL or page."""

@@ -4,6 +4,9 @@ from pathlib import Path
 import time
 
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
 from agents.base_image_parser import BaseImageParser
 from utils.file_utils import save_image_with_dedup, is_excluded_url, get_high_res_url
@@ -426,8 +429,19 @@ class APlusProductParser(BaseImageParser):
                     found_new = False
                     for btn in next_buttons:
                         if btn.is_displayed() and btn.is_enabled():
-                            self.browser.click_element(btn)
-                            self.browser._random_sleep(0.15, 0.25)
+                            # Get initial image count
+                            initial_img_count = len(section.find_elements(By.TAG_NAME, 'img'))
+                            
+                            self.browser.click_element(btn, wait_for_change=True)
+                            
+                            # Wait for new images to appear (max 1 second)
+                            try:
+                                driver = self.browser.get_driver()
+                                wait = WebDriverWait(driver, 1)
+                                wait.until(lambda d: len(section.find_elements(By.TAG_NAME, 'img')) != initial_img_count)
+                            except TimeoutException:
+                                # Images might not change or change was instant, continue
+                                pass
                             
                             new_images = section.find_elements(By.TAG_NAME, 'img')
                             for img in new_images:

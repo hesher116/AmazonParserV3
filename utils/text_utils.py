@@ -309,6 +309,7 @@ def extract_asin_from_url(url: str) -> Optional[str]:
         r'/gp/product/([A-Z0-9]{10})',
         r'/product/([A-Z0-9]{10})',
         r'asin=([A-Z0-9]{10})',
+        r'pd_rd_i=([A-Z0-9]{10})',  # Also check query parameters
     ]
     
     for pattern in patterns:
@@ -317,6 +318,34 @@ def extract_asin_from_url(url: str) -> Optional[str]:
             return match.group(1).upper()
     
     return None
+
+
+def normalize_amazon_url(url: str) -> str:
+    """
+    Normalize Amazon product URL to clean format with locale parameters.
+    
+    Converts long URLs like:
+    https://www.amazon.com/ELLA-BELLA%C2%AE-Keratin-Hair-Mask/dp/B0FC113R97/ref=...&pd_rd_i=B0FC113R97&...
+    
+    To clean format:
+    https://www.amazon.com/dp/B0FC113R97/&language=en_US&currency=USD
+    
+    Args:
+        url: Original Amazon product URL
+        
+    Returns:
+        Normalized URL with ASIN and locale parameters
+    """
+    asin = extract_asin_from_url(url)
+    if not asin:
+        # If we can't extract ASIN, return original URL (shouldn't happen for valid Amazon URLs)
+        logger.warning(f"Could not extract ASIN from URL: {url[:80]}...")
+        return url
+    
+    # Build normalized URL: https://www.amazon.com/dp/{ASIN}/&language=en_US&currency=USD
+    normalized_url = f"https://www.amazon.com/dp/{asin}/&language=en_US&currency=USD"
+    logger.debug(f"Normalized URL: {url[:80]}... -> {normalized_url}")
+    return normalized_url
 
 
 def normalize_whitespace(text: str) -> str:

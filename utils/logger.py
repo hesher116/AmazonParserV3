@@ -122,7 +122,12 @@ def get_logger(name: str) -> logging.Logger:
     """
     logger = logging.getLogger(name)
     
+    # Prevent duplicate handlers - check if handlers already exist
     if logger.handlers:
+        return logger
+    
+    # Also check if logger level is already set (indicates it was configured)
+    if logger.level != logging.NOTSET:
         return logger
     
     logger.setLevel(getattr(logging, Settings.LOG_LEVEL.upper(), logging.INFO))

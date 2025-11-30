@@ -125,7 +125,6 @@ class Database:
                         'images': results.get('images', {}),
                         'reviews_count': results.get('reviews_count', 0),
                         'qa_count': results.get('qa_count', 0),
-                        'variants_count': results.get('variants_count', 0),
                         'processing_time_seconds': results.get('processing_time_seconds'),
                         'processing_time_formatted': results.get('processing_time_formatted'),
                         'errors': results.get('errors', [])[:10]  # Keep only first 10 errors

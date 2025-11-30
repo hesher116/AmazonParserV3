@@ -70,8 +70,13 @@ class Coordinator:
             Dictionary with all results
         """
         self.progress_callback = progress_callback
+        
+        # Normalize URL to clean format: https://www.amazon.com/dp/{ASIN}/&language=en_US&currency=USD
+        from utils.text_utils import normalize_amazon_url
+        normalized_url = normalize_amazon_url(url)
+        
         self.results = {
-            'url': url,
+            'url': normalized_url,  # Store normalized URL for document
             'task_id': task_id,
             'text': {},
             'images': {},
@@ -703,9 +708,20 @@ class Coordinator:
         aplus_brand_count = len(aplus_brand_list) if isinstance(aplus_brand_list, list) else 0
         aplus_manufacturer_count = len(aplus_manufacturer_list) if isinstance(aplus_manufacturer_list, list) else 0
         
+        # Extract price from text results (format: "Price($): 10.03")
+        price = self.results.get('text', {}).get('price')
+        price_value = None
+        if price and isinstance(price, str) and 'Price($):' in price:
+            try:
+                # Extract numeric value from "Price($): 10.03"
+                price_value = price.split('Price($):')[1].strip() if 'Price($):' in price else None
+            except:
+                pass
+        
         summary = {
             'product_name': self.results.get('text', {}).get('title'),
             'asin': self.results.get('text', {}).get('asin'),
+            'price': price_value,  # Store price value for UI display
             'output_dir': self.output_dir,
             'images': {
                 'hero': hero_count,

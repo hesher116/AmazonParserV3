@@ -71,28 +71,6 @@ def create_output_structure(product_name: str, include_variants: bool = False) -
     return str(base_dir)
 
 
-def create_variant_structure(base_dir: str, variant_name: str) -> str:
-    """
-    Create output structure for a product variant.
-    
-    Args:
-        base_dir: Base product directory
-        variant_name: Name of the variant (will be sanitized)
-        
-    Returns:
-        Path to the variant output directory
-    """
-    sanitized_name = sanitize_filename(variant_name)
-    variant_dir = Path(base_dir) / 'variants' / sanitized_name
-    
-    subdirs = ['hero', 'product', 'aplus_brand', 'aplus_product', 'QAImages']
-    for subdir in subdirs:
-        (variant_dir / subdir).mkdir(parents=True, exist_ok=True)
-    
-    logger.info(f"Created variant structure: {variant_dir}")
-    return str(variant_dir)
-
-
 def calculate_md5(data: bytes) -> str:
     """Calculate MD5 hash of data."""
     return hashlib.md5(data).hexdigest()

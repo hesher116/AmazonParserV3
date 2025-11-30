@@ -115,6 +115,10 @@
                             {% if task.results %}
                             <div class="task-results">
                                 {% set r = task.results %}
+                                {% set config = task.config if task.config else {} %}
+                                {% if config.text and r.price %}
+                                <span title="Price" class="task-price">Price: ${{ r.price }}</span>
+                                {% endif %}
                                 <span title="Hero images">Hero: {{ r.images.hero if r.images and r.images.hero else 0 }}</span>
                                 <span title="Gallery images">Gallery: {{ r.images.gallery if r.images and r.images.gallery else 0 }}</span>
                                 <span title="A+ Product images">A+ Prod: {{ r.images.aplus_product if r.images and r.images.aplus_product else 0 }}</span>
@@ -274,7 +278,7 @@
                 
                 tasksList.innerHTML = tasks.map(task => {
                     // Safely extract image counts - handle both number and array cases
-                    let hero = 0, gallery = 0, aplus_product = 0, aplus_brand = 0;
+                    let hero = 0, gallery = 0, aplus_product = 0, aplus_brand = 0, aplus_manufacturer = 0;
                     
                     if (task.results && task.results.images) {
                         const images = task.results.images;
@@ -300,6 +304,7 @@
                         </div>
                         ${task.results ? `
                         <div class="task-results">
+                            ${task.config?.text && task.results.price ? `<span title="Price" class="task-price">Price: $${task.results.price}</span>` : ''}
                             <span title="Hero images">Hero: ${hero}</span>
                             <span title="Gallery images">Gallery: ${gallery}</span>
                             <span title="A+ Product images">A+ Prod: ${aplus_product}</span>

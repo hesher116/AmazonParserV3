@@ -49,9 +49,24 @@ class BrowserPool:
         # Set user agent
         options.add_argument(f'--user-agent={self._user_agent}')
         
+        # Force US locale for Amazon (to get USD prices instead of EUR)
+        # Accept-Language header will be set via Chrome preferences
+        prefs = {
+            'intl.accept_languages': 'en-US,en;q=0.9',
+        }
+        options.add_experimental_option('prefs', prefs)
+        
         # Headless mode if configured
         if Settings.HEADLESS:
             options.add_argument('--headless=new')
+            # Additional options for better headless compatibility
+            options.add_argument('--disable-software-rasterizer')
+            options.add_argument('--disable-extensions')
+            options.add_argument('--disable-background-timer-throttling')
+            options.add_argument('--disable-backgrounding-occluded-windows')
+            options.add_argument('--disable-renderer-backgrounding')
+            # Ensure JavaScript executes properly in headless mode
+            options.add_argument('--enable-javascript')
         
         # Set page load strategy to "none" for faster navigation
         # This allows us to start interacting with page before it fully loads
@@ -111,11 +126,43 @@ class BrowserPool:
         try:
             logger.info(f"Navigating to: {url[:80]}...")
             import time
+            from utils.text_utils import normalize_amazon_url
+            
             start_time = time.time()
             
-            # Navigate with page_load_strategy="none" - won't wait for full page load
+            # Normalize URL to clean format: https://www.amazon.com/dp/{ASIN}/&language=en_US&currency=USD
+            normalized_url = normalize_amazon_url(url)
+            
+            # Set cookies for US locale before navigation (Amazon uses cookies to determine locale)
+            # This ensures we get USD prices instead of EUR
             try:
-                driver.get(url)
+                # Navigate to Amazon.com first to set cookies (if not already on Amazon)
+                if 'amazon.com' not in driver.current_url:
+                    driver.get('https://www.amazon.com')
+                    # Small wait for page to load
+                    time.sleep(0.5)
+                
+                # Set locale cookies for US
+                driver.add_cookie({
+                    'name': 'i18n-prefs',
+                    'value': 'USD',
+                    'domain': '.amazon.com',
+                    'path': '/',
+                })
+                driver.add_cookie({
+                    'name': 'lc-main',
+                    'value': 'en_US',
+                    'domain': '.amazon.com',
+                    'path': '/',
+                })
+                logger.debug("US locale cookies set")
+            except Exception as e:
+                logger.debug(f"Could not set locale cookies (will use URL parameters): {e}")
+            
+            # Navigate with page_load_strategy="none" - won't wait for full page load
+            # Use normalized URL which already has locale parameters
+            try:
+                driver.get(normalized_url)
             except Exception as e:
                 # With page_load_strategy="none", get() may raise exception but page still loads
                 logger.debug(f"  [Navigation] get() completed (expected with page_load_strategy='none'): {e}")
@@ -179,18 +226,8 @@ class BrowserPool:
             else:
                 logger.debug(f"  [Navigation] Skipping gallery wait (images not needed)")
             
-            # Minimal delay - only if images are needed, otherwise skip
-            if need_images:
-                delay_start = time.time()
-                self._random_sleep(0.1, 0.2)  # Reduced from 0.3-0.6
-                delay_time = time.time() - delay_start
-                logger.debug(f"  [Navigation] Initial delay: {delay_time:.2f}s")
-            else:
-                # For text-only parsing, minimal delay
-                delay_start = time.time()
-                self._random_sleep(0.05, 0.1)  # Very short delay for text parsing
-                delay_time = time.time() - delay_start
-                logger.debug(f"  [Navigation] Minimal delay for text parsing: {delay_time:.2f}s")
+            # No delays needed - DOM dump will be saved after waiting for elements to load
+            # All parsing happens on local DOM dump, so delays here just slow things down
             
             # Handle soft blocks (including "Continue shopping" button) - with timeout
             soft_block_start = time.time()
@@ -270,7 +307,13 @@ class BrowserPool:
                             if btn.is_displayed():
                                 logger.info("Found 'Continue shopping' button, clicking...")
                                 btn.click()
-                                self._random_sleep(0.2, 0.4)  # Reduced delay
+                                # Wait for button to disappear or page to change (max 1 second)
+                                try:
+                                    wait = WebDriverWait(driver, 1)
+                                    wait.until(lambda d: not btn.is_displayed() or d.execute_script("return document.readyState") == 'complete')
+                                except TimeoutException:
+                                    # Button might still be visible but action completed, continue
+                                    logger.debug("Button visibility wait timeout (action may have completed)")
                                 return True
                 except:
                     continue
@@ -353,7 +396,7 @@ class BrowserPool:
     
     def scroll_to_element(self, element) -> bool:
         """
-        Scroll element into view.
+        Scroll element into view and wait for it to be visible.
         
         Args:
             element: WebElement to scroll to
@@ -364,11 +407,22 @@ class BrowserPool:
         driver = self.get_driver()
         
         try:
+            # Get element location before scroll
+            initial_location = element.location_once_scrolled_into_view
+            
             driver.execute_script(
                 "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
                 element
             )
-            self._random_sleep(0.5, 1.0)
+            
+            # Wait for element to be visible in viewport (max 2 seconds)
+            try:
+                wait = WebDriverWait(driver, 2)
+                wait.until(EC.visibility_of(element))
+            except TimeoutException:
+                # If timeout, element might already be visible, continue
+                logger.debug("Element visibility wait timeout (may already be visible)")
+            
             return True
         except Exception as e:
             logger.debug(f"Scroll failed: {e}")
@@ -376,7 +430,7 @@ class BrowserPool:
     
     def scroll_page(self, direction: str = 'down', amount: int = 500):
         """
-        Scroll page in specified direction.
+        Scroll page in specified direction and wait for scroll to complete.
         
         Args:
             direction: 'up' or 'down'
@@ -385,23 +439,32 @@ class BrowserPool:
         driver = self.get_driver()
         
         try:
+            # Get initial scroll position
+            initial_scroll = driver.execute_script("return window.pageYOffset;")
+            
             if direction == 'down':
                 driver.execute_script(f"window.scrollBy(0, {amount});")
             else:
                 driver.execute_script(f"window.scrollBy(0, -{amount});")
             
-            self._random_sleep(0.3, 0.7)
+            # Wait for scroll to complete (check if scroll position changed, max 1 second)
+            try:
+                wait = WebDriverWait(driver, 1)
+                wait.until(lambda d: abs(d.execute_script("return window.pageYOffset;") - initial_scroll) >= amount * 0.5)
+            except TimeoutException:
+                # Scroll might have completed instantly or was blocked, continue
+                logger.debug("Scroll position wait timeout (scroll may have completed)")
         except Exception as e:
             logger.debug(f"Scroll failed: {e}")
     
-    def click_element(self, element, min_delay: float = None, max_delay: float = None) -> bool:
+    def click_element(self, element, wait_for_change: bool = True, change_selector: str = None) -> bool:
         """
-        Click element with error handling.
+        Click element and optionally wait for DOM change.
         
         Args:
             element: WebElement to click
-            min_delay: Minimum delay after click (default: 0.1)
-            max_delay: Maximum delay after click (default: 0.3)
+            wait_for_change: If True, wait for DOM to change after click (default: True)
+            change_selector: CSS selector to wait for after click (optional)
             
         Returns:
             True if successful
@@ -410,17 +473,37 @@ class BrowserPool:
         
         try:
             self.scroll_to_element(element)
+            
+            # Get initial DOM state if we need to wait for change
+            initial_html = None
+            if wait_for_change:
+                try:
+                    initial_html = driver.execute_script("return document.body.innerHTML.length;")
+                except:
+                    pass
+            
             element.click()
-            # Use minimal delay for thumbnail clicks
-            min_delay = min_delay if min_delay is not None else 0.1
-            max_delay = max_delay if max_delay is not None else 0.3
-            self._random_sleep(min_delay, max_delay)
+            
+            # Wait for DOM change if requested (max 1 second)
+            if wait_for_change:
+                try:
+                    wait = WebDriverWait(driver, 1)
+                    if change_selector:
+                        # Wait for specific element to appear
+                        wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, change_selector)))
+                    elif initial_html is not None:
+                        # Wait for DOM to change
+                        wait.until(lambda d: d.execute_script("return document.body.innerHTML.length;") != initial_html)
+                except TimeoutException:
+                    # DOM might not change or change was instant, continue
+                    logger.debug("DOM change wait timeout (change may have been instant)")
+            
             return True
         except Exception as e:
             # Try JavaScript click as fallback
             try:
                 driver.execute_script("arguments[0].click();", element)
-                self._random_sleep()
+                # No delay needed - if JS click works, it's instant
                 return True
             except Exception:
                 logger.debug(f"Click failed: {e}")

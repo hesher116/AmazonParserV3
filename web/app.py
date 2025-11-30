@@ -86,8 +86,23 @@ def start_parsing():
             'images_aplus_manufacturer': request.form.get('images_aplus_manufacturer') == 'on',
             'text': request.form.get('text') == 'on',
             'reviews': request.form.get('reviews') == 'on',
-            'variants': request.form.get('variants') == 'on',
         }
+        
+        # Validate that at least one option is selected
+        has_images = any([
+            config['images_hero'],
+            config['images_gallery'],
+            config['images_aplus_product'],
+            config['images_aplus_brand'],
+            config['images_aplus_manufacturer'],
+        ])
+        has_text = config['text']
+        has_reviews = config['reviews']
+        
+        if not (has_images or has_text or has_reviews):
+            response = jsonify({'error': 'Please select at least one option to parse'})
+            response.headers['Connection'] = 'close'
+            return response, 400
         
         # Create task in database
         task_id = db.create_task(url, config=config)
@@ -176,7 +191,8 @@ def get_tasks():
             'status': task['status'],
             'created_at': task['created_at'],
             'results': task.get('results'),
-            'error_message': task.get('error_message')
+            'error_message': task.get('error_message'),
+            'config': task.get('config', {})  # Include config to check if text parsing was selected
         })
     
     return jsonify(tasks)

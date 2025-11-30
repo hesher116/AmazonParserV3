@@ -227,7 +227,7 @@ class DocxGenerator:
         self.doc.add_paragraph()
     
     def _add_product_description(self, text: str):
-        """Add Product Description section, handling Q&A content if present."""
+        """Add Product Description section, handling Q&A content and structured content if present."""
         self.doc.add_heading('Product Description', level=1)
         
         # Check if this is Q&A content
@@ -259,6 +259,68 @@ class DocxGenerator:
                         
                         # Add blank line between Q&A pairs
                         self.doc.add_paragraph()
+        elif text.startswith('STRUCTURED_DESCRIPTION:'):
+            # Structured content with headings and paragraphs
+            content = text.replace('STRUCTURED_DESCRIPTION:', '').strip()
+            lines = content.split('\n')
+            
+            current_heading = None
+            current_content = []
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    # Empty line - save current section if exists
+                    if current_heading and current_content:
+                        # Add heading (level 2)
+                        self.doc.add_heading(current_heading, level=2)
+                        # Add content - preserve line breaks within content
+                        content_text = '\n'.join(current_content)
+                        # Split by newlines and add as separate paragraphs for better readability
+                        for para in content_text.split('\n'):
+                            if para.strip():
+                                self.doc.add_paragraph(para.strip())
+                        self.doc.add_paragraph()  # Blank line after section
+                        current_heading = None
+                        current_content = []
+                    continue
+                
+                if line.startswith('HEADING:'):
+                    # Save previous section if exists
+                    if current_heading and current_content:
+                        self.doc.add_heading(current_heading, level=2)
+                        # Preserve line breaks in content
+                        content_text = '\n'.join(current_content)
+                        for para in content_text.split('\n'):
+                            if para.strip():
+                                self.doc.add_paragraph(para.strip())
+                        self.doc.add_paragraph()
+                    
+                    # Start new section
+                    current_heading = line.replace('HEADING:', '').strip()
+                    current_content = []
+                elif line.startswith('CONTENT:'):
+                    content_text = line.replace('CONTENT:', '').strip()
+                    if content_text:
+                        # Remove any pipe symbols that might have been added
+                        content_text = content_text.replace(' | ', ' ').replace('|', '')
+                        current_content.append(content_text)
+                else:
+                    # Regular line - add to current content
+                    if line:
+                        # Remove any pipe symbols
+                        line = line.replace(' | ', ' ').replace('|', '')
+                        current_content.append(line)
+            
+            # Add last section
+            if current_heading and current_content:
+                self.doc.add_heading(current_heading, level=2)
+                # Preserve line breaks
+                content_text = '\n'.join(current_content)
+                for para in content_text.split('\n'):
+                    if para.strip():
+                        self.doc.add_paragraph(para.strip())
+                self.doc.add_paragraph()
         else:
             # Regular text content
             self.doc.add_paragraph(text)
