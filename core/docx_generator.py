@@ -42,7 +42,7 @@ class DocxGenerator:
             
             text_data = results.get('text', {})
             reviews_data = results.get('reviews', {})
-            qa_data = results.get('qa', {})
+            # Q&A is now part of Product Description, no separate qa_data needed
             
             # Get product URL from results
             product_url = results.get('url', '')
@@ -65,36 +65,40 @@ class DocxGenerator:
             if product_url:
                 self._add_url(product_url)
             
-            # 3. Basic Info (Brand, ASIN, Price)
+            # 3. Product Information (Basic Info: Brand, ASIN, Price)
             self._add_basic_info(text_data)
             
-            # 4. Product Description
-            if text_data.get('product_description'):
-                self._add_text_section('Product Description', text_data['product_description'])
-            
-            # 5. About This Item (before Product Overview, as on Amazon)
-            if text_data.get('about_this_item'):
-                self._add_bullet_list('About This Item', text_data['about_this_item'])
-            
-            # 6. Product Overview
+            # 4. Product Overview
             if text_data.get('product_overview'):
                 self._add_section('Product Overview', text_data['product_overview'])
             
-            # 7. Important Information (includes Ingredients if present)
-            if text_data.get('important_information'):
-                self._add_section('Important Information', text_data['important_information'])
+            # 5. About This Item
+            if text_data.get('about_this_item'):
+                self._add_bullet_list('About This Item', text_data['about_this_item'])
             
-            # 8. Sustainability Features
+            # 6. From the Brand
+            if text_data.get('from_the_brand'):
+                self._add_text_section('From the Brand', text_data['from_the_brand'])
+            
+            # 7. Sustainability Features
             if text_data.get('sustainability_features'):
                 self._add_text_section('Sustainability Features', text_data['sustainability_features'])
             
-            # 9. Technical Details
-            if text_data.get('technical_details'):
-                self._add_section('Technical Details', text_data['technical_details'])
+            # 8. Product Description (may contain Q&A)
+            if text_data.get('product_description'):
+                self._add_product_description(text_data['product_description'])
             
-            # 10. Product Details
+            # 9. Product Details
             if text_data.get('product_details'):
                 self._add_section('Product Details', text_data['product_details'])
+            
+            # 10. Important Information (includes Ingredients if present)
+            if text_data.get('important_information'):
+                self._add_section('Important Information', text_data['important_information'])
+            
+            # 11. Technical Details
+            if text_data.get('technical_details'):
+                self._add_section('Technical Details', text_data['technical_details'])
             
             # 12. Customer Reviews Summary
             if reviews_data.get('summary'):
@@ -104,9 +108,7 @@ class DocxGenerator:
             if reviews_data.get('reviews'):
                 self._add_review_details(reviews_data['reviews'])
             
-            # 12. Q&A
-            if qa_data.get('qa_pairs'):
-                self._add_qa_section(qa_data['qa_pairs'])
+            # Q&A is now part of Product Description
             
             # 13. Add images from folders (in correct order)
             output_dir = results.get('output_dir')
@@ -185,7 +187,7 @@ class DocxGenerator:
         self.doc.add_paragraph()
     
     def _add_section(self, title: str, data: Dict):
-        """Add a section with key-value pairs."""
+        """Add a section with key-value pairs as table."""
         self.doc.add_heading(title, level=1)
         
         # Create table for structured data
@@ -195,8 +197,14 @@ class DocxGenerator:
             
             for i, (key, value) in enumerate(data.items()):
                 row = table.rows[i]
-                row.cells[0].text = str(key)
-                row.cells[1].text = str(value)
+                # Simple: just strip and use as-is
+                row.cells[0].text = str(key).strip()
+                row.cells[1].text = str(value).strip()
+                
+                # Set cell margins to reduce spacing
+                for cell in row.cells:
+                    cell.paragraphs[0].paragraph_format.space_after = 0
+                    cell.paragraphs[0].paragraph_format.space_before = 0
         
         self.doc.add_paragraph()
     
@@ -214,6 +222,45 @@ class DocxGenerator:
         """Add a section with plain text."""
         self.doc.add_heading(title, level=1)
         self.doc.add_paragraph(text)
+        self.doc.add_paragraph()
+    
+    def _add_product_description(self, text: str):
+        """Add Product Description section, handling Q&A content if present."""
+        self.doc.add_heading('Product Description', level=1)
+        
+        # Check if this is Q&A content
+        if text.startswith('Q&A_CONTENT:'):
+            # Remove the prefix
+            qa_content = text.replace('Q&A_CONTENT:', '').strip()
+            
+            # Add Q&A subtitle
+            self.doc.add_heading('Questions & Answers', level=2)
+            
+            # Split by |||PAIR_SEP||| to get individual Q&A pairs
+            qa_pairs = qa_content.split('|||PAIR_SEP|||')
+            
+            for pair in qa_pairs:
+                # Each pair is "Question|||Answer"
+                parts = pair.split('|||', 1)
+                if len(parts) == 2:
+                    question = parts[0].strip()
+                    answer = parts[1].strip()
+                    
+                    if question and answer:
+                        # Add question (bold)
+                        q_para = self.doc.add_paragraph()
+                        q_run = q_para.add_run(question)
+                        q_run.bold = True
+                        
+                        # Add answer (no blank line between question and answer)
+                        self.doc.add_paragraph(answer)
+                        
+                        # Add blank line between Q&A pairs
+                        self.doc.add_paragraph()
+        else:
+            # Regular text content
+            self.doc.add_paragraph(text)
+        
         self.doc.add_paragraph()
     
     def _add_reviews_summary(self, summary: Dict):

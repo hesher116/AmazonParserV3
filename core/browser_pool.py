@@ -64,7 +64,7 @@ class BrowserPool:
             self._driver = uc.Chrome(options=options)
             # With page_load_strategy="none", we don't need long timeout
             self._driver.set_page_load_timeout(30)  # Fallback timeout
-            self._driver.implicitly_wait(2)  # Reduced implicit wait
+            self._driver.implicitly_wait(0.5)  # Reduced implicit wait for faster fallback
             
             # Set window size explicitly
             self._driver.set_window_size(Settings.WINDOW_WIDTH, Settings.WINDOW_HEIGHT)
@@ -95,12 +95,13 @@ class BrowserPool:
             finally:
                 self._driver = None
     
-    def navigate_to(self, url: str) -> bool:
+    def navigate_to(self, url: str, need_images: bool = False) -> bool:
         """
         Navigate to URL with error handling.
         
         Args:
             url: URL to navigate to
+            need_images: If True, wait for gallery elements to load
             
         Returns:
             True if navigation successful
@@ -122,62 +123,74 @@ class BrowserPool:
             init_time = time.time() - start_time
             logger.info(f"  [Navigation] Navigation initiated ({init_time:.2f}s)")
             
-            # Wait specifically for gallery image elements (what we actually need)
-            # These are the critical elements for image parsing
-            gallery_selectors = [
-                "#landingImage",  # Main hero image
-                "#imgTagWrapperId img",  # Image wrapper
-                "#altImages img",  # Gallery thumbnails
-            ]
-            
-            logger.info(f"  [Navigation] Waiting for gallery elements...")
-            wait_start = time.time()
-            
-            try:
-                wait = WebDriverWait(driver, 3)  # Max 3 seconds for gallery (optimized)
+            # Wait for gallery elements only if images are needed
+            if need_images:
+                # Wait specifically for gallery image elements (what we actually need)
+                # These are the critical elements for image parsing
+                gallery_selectors = [
+                    "#landingImage",  # Main hero image
+                    "#imgTagWrapperId img",  # Image wrapper
+                    "#altImages img",  # Gallery thumbnails
+                ]
                 
-                # Wait for at least one gallery element to appear
-                def gallery_ready(driver):
-                    """Check if gallery elements are present and have valid image sources."""
+                logger.info(f"  [Navigation] Waiting for gallery elements...")
+                wait_start = time.time()
+                
+                try:
+                    wait = WebDriverWait(driver, 3)  # Max 3 seconds for gallery (optimized)
+                    
+                    # Wait for at least one gallery element to appear
+                    def gallery_ready(driver):
+                        """Check if gallery elements are present and have valid image sources."""
+                        for selector in gallery_selectors:
+                            try:
+                                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                                for elem in elements:
+                                    # Check if element has valid src or data-old-hires
+                                    src = elem.get_attribute('src') or elem.get_attribute('data-old-hires') or elem.get_attribute('data-src')
+                                    if src and src.startswith('http') and 'data:image' not in src:
+                                        # Valid image source found
+                                        return True
+                            except:
+                                continue
+                        return False
+                    
+                    wait.until(gallery_ready)
+                    gallery_time = time.time() - wait_start
+                    logger.info(f"  [Navigation] Gallery elements ready ({gallery_time:.2f}s)")
+                    
+                    # Verify images have valid sources
+                    valid_images = 0
                     for selector in gallery_selectors:
                         try:
                             elements = driver.find_elements(By.CSS_SELECTOR, selector)
                             for elem in elements:
-                                # Check if element has valid src or data-old-hires
                                 src = elem.get_attribute('src') or elem.get_attribute('data-old-hires') or elem.get_attribute('data-src')
                                 if src and src.startswith('http') and 'data:image' not in src:
-                                    # Valid image source found
-                                    return True
+                                    valid_images += 1
+                                    break  # Count each selector once
                         except:
-                            continue
-                    return False
-                
-                wait.until(gallery_ready)
-                gallery_time = time.time() - wait_start
-                logger.info(f"  [Navigation] Gallery elements ready ({gallery_time:.2f}s)")
-                
-                # Verify images have valid sources
-                valid_images = 0
-                for selector in gallery_selectors:
-                    try:
-                        elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                        for elem in elements:
-                            src = elem.get_attribute('src') or elem.get_attribute('data-old-hires') or elem.get_attribute('data-src')
-                            if src and src.startswith('http') and 'data:image' not in src:
-                                valid_images += 1
-                    except:
-                        pass
-                
-                logger.info(f"  [Navigation] Found {valid_images} images with valid sources")
-                
-            except TimeoutException:
-                logger.warning(f"  [Navigation] Gallery elements timeout after 3s, continuing anyway...")
+                            pass
+                    
+                    logger.info(f"  [Navigation] Found {valid_images} images with valid sources")
+                    
+                except TimeoutException:
+                    logger.warning(f"  [Navigation] Gallery elements timeout after 3s, continuing anyway...")
+            else:
+                logger.debug(f"  [Navigation] Skipping gallery wait (images not needed)")
             
-            # Minimal delay - images already loading
-            delay_start = time.time()
-            self._random_sleep(0.1, 0.2)  # Reduced from 0.3-0.6
-            delay_time = time.time() - delay_start
-            logger.debug(f"  [Navigation] Initial delay: {delay_time:.2f}s")
+            # Minimal delay - only if images are needed, otherwise skip
+            if need_images:
+                delay_start = time.time()
+                self._random_sleep(0.1, 0.2)  # Reduced from 0.3-0.6
+                delay_time = time.time() - delay_start
+                logger.debug(f"  [Navigation] Initial delay: {delay_time:.2f}s")
+            else:
+                # For text-only parsing, minimal delay
+                delay_start = time.time()
+                self._random_sleep(0.05, 0.1)  # Very short delay for text parsing
+                delay_time = time.time() - delay_start
+                logger.debug(f"  [Navigation] Minimal delay for text parsing: {delay_time:.2f}s")
             
             # Handle soft blocks (including "Continue shopping" button) - with timeout
             soft_block_start = time.time()

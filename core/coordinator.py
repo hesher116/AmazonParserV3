@@ -22,7 +22,6 @@ from agents.aplus_brand_parser import APlusBrandParser
 from agents.aplus_manufacturer_parser import APlusManufacturerParser
 from agents.text_parser import TextParserAgent
 from agents.reviews_parser import ReviewsParserAgent
-from agents.qa_parser import QAParserAgent
 from agents.variant_detector import VariantDetectorAgent
 from agents.validator import ValidatorAgent
 from utils.file_utils import create_output_structure, create_variant_structure, sanitize_filename
@@ -95,8 +94,17 @@ class Coordinator:
             self.browser_pool = BrowserPool()
             
             # Navigate to product page
+            # Check if images are needed
+            need_images = any([
+                config.get('images_hero', False),
+                config.get('images_gallery', False),
+                config.get('images_aplus_product', False),
+                config.get('images_aplus_brand', False),
+                config.get('images_aplus_manufacturer', False),
+            ])
+            
             self._update_progress('Loading product page...', 10)
-            if not self.browser_pool.navigate_to(url):
+            if not self.browser_pool.navigate_to(url, need_images=need_images):
                 raise Exception("Failed to load product page")
             
             # Save DOM dump for atomic parsing (all agents work with same snapshot)
@@ -197,14 +205,14 @@ class Coordinator:
                     self.results['errors'].append(f"Image parsing: {str(e)}")
                 current_progress += 20
             
-            # Parse reviews and Q&A in parallel (they are independent)
-            if config.get('reviews', False) or config.get('qa', False):
-                self._update_progress('Parsing reviews and Q&A...', current_progress)
+            # Parse reviews in parallel (Q&A is now part of text parsing)
+            if config.get('reviews', False):
+                self._update_progress('Parsing reviews...', current_progress)
                 self._run_parallel_agents(config)
                 current_progress += 20
             
             # Validate results (only if we have more than just images)
-            has_other_data = config.get('reviews', False) or config.get('qa', False)
+            has_other_data = config.get('reviews', False)
             if has_other_data:
                 self._update_progress('Validating data...', 85)
                 self._run_validation()
@@ -281,6 +289,33 @@ class Coordinator:
     def _save_dom_dump(self):
         """Save page source as DOM dump for atomic parsing."""
         try:
+            driver = self.browser_pool.get_driver()
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            from selenium.webdriver.common.by import By
+            
+            # Wait for main text content to load before saving DOM dump
+            # This reduces fallback to Selenium
+            logger.debug("Waiting for text content to load...")
+            try:
+                wait = WebDriverWait(driver, 5)  # Max 5 seconds
+                # Wait for at least one of the main text elements (including price blocks)
+                wait.until(EC.any_of(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#productTitle')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#productDescription_feature_div')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#detailBullets_feature_div')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#productDetails_detailBullets_sections1')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#important-information')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#corePriceDisplay_desktop_feature_div')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#corePrice_feature_div')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#apexPriceToPay')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '.a-price')),
+                    EC.presence_of_element_located((By.CSS_SELECTOR, '#climatePledgeFriendly')),
+                ))
+                logger.debug("Text content loaded, saving DOM dump...")
+            except Exception as e:
+                logger.debug(f"Text content wait timeout/error (continuing anyway): {e}")
+            
             self.dom_dump = self.browser_pool.get_page_source()
             self.dom_soup = BeautifulSoup(self.dom_dump, 'html.parser')
             logger.info(f"DOM dump saved ({len(self.dom_dump)} chars)")
@@ -452,10 +487,7 @@ class Coordinator:
                 config.get('max_reviews', 10)
             )
         
-        # Q&A
-        if config.get('qa', False):
-            qa_agent = QAParserAgent(self.browser_pool)
-            results['qa'] = self._run_with_retry(qa_agent.parse)
+        # Q&A is now parsed as part of text parsing (Product Description)
         
         return results
     
@@ -588,11 +620,7 @@ class Coordinator:
                 return self._run_with_retry(agent.parse, self.output_dir, max_reviews)
             tasks.append(('reviews', run_reviews))
         
-        if config.get('qa', False):
-            def run_qa():
-                agent = QAParserAgent(self.browser_pool, self.dom_soup)
-                return self._run_with_retry(agent.parse)
-            tasks.append(('qa', run_qa))
+        # Q&A is now parsed as part of text parsing (Product Description)
         
         # Run tasks in parallel
         if len(tasks) == 1:
@@ -624,9 +652,9 @@ class Coordinator:
         )
     
     def _run_qa_agent(self):
-        """Run Q&A parsing agent (legacy method, use _run_parallel_agents instead)."""
-        agent = QAParserAgent(self.browser_pool)
-        self.results['qa'] = self._run_with_retry(agent.parse)
+        """Run Q&A parsing agent (legacy method - Q&A is now part of text parsing)."""
+        # Q&A is now parsed as part of Product Description in text_parser
+        pass
     
     def _run_validation(self):
         """Run validation agent."""

@@ -42,14 +42,15 @@ class TextParserAgent(BaseParser):
             'brand': None,
             'price': None,
             'asin': None,
-            'product_description': None,
             'product_overview': {},
             'about_this_item': [],
-            'ingredients': None,
-            'important_information': {},
+            'from_the_brand': None,
             'sustainability_features': None,
-            'technical_details': {},
+            'product_description': None,
             'product_details': {},
+            'important_information': {},
+            'technical_details': {},
+            'ingredients': None,
             'errors': []
         }
         
@@ -58,14 +59,15 @@ class TextParserAgent(BaseParser):
             results['brand'] = self._parse_brand()
             results['price'] = self._parse_price()
             results['asin'] = self._parse_asin()
-            results['product_description'] = self._parse_product_description()
             results['product_overview'] = self._parse_product_overview()
             results['about_this_item'] = self._parse_about_this_item()
-            results['ingredients'] = self._parse_ingredients()
-            results['important_information'] = self._parse_important_information()
+            results['from_the_brand'] = self._parse_from_the_brand()
             results['sustainability_features'] = self._parse_sustainability_features()
-            results['technical_details'] = self._parse_technical_details()
+            results['product_description'] = self._parse_product_description()
             results['product_details'] = self._parse_product_details()
+            results['important_information'] = self._parse_important_information()
+            results['technical_details'] = self._parse_technical_details()
+            results['ingredients'] = self._parse_ingredients()
             
             logger.info("Text parsing complete")
             
@@ -189,7 +191,7 @@ class TextParserAgent(BaseParser):
         return None
     
     def _parse_product_description(self) -> Optional[str]:
-        """Parse product description text."""
+        """Parse product description text, including structured content (tables, columns, Q&A)."""
         selectors = [
             '#productDescription_feature_div',
             '#aplus_feature_div',
@@ -200,11 +202,104 @@ class TextParserAgent(BaseParser):
         for selector in selectors:
             element = self.find_element_by_selector(selector, use_dom=True)
             if element:
-                # Extract text content, excluding navigation elements
+                # Check if there's structured content (table, columns, comparison)
                 if hasattr(element, 'select'):  # BeautifulSoup
                     # Remove navigation buttons and headings
                     for nav in element.select('.a-carousel-control, .a-button, h2'):
                         nav.decompose()
+                    
+                    # Check for Q&A content first (aplus-question/aplus-answer)
+                    qa_pairs = element.select('.faq-block, li[id*="faq-qa-pair"]')
+                    if qa_pairs:
+                        qa_texts = []
+                        for qa_pair in qa_pairs:
+                            question = qa_pair.select_one('.aplus-question, .aplus-p1')
+                            answer = qa_pair.select_one('.aplus-answer, .aplus-p2')
+                            
+                            if question and answer:
+                                q_text = question.get_text(strip=True)
+                                a_text = answer.get_text(strip=True)
+                                if q_text and a_text:
+                                    # Format: Question|||Answer (using ||| as separator between pairs)
+                                    qa_texts.append(f"{q_text}|||{a_text}")
+                        
+                        if qa_texts:
+                            # Mark as Q&A content with special prefix, use ||| as separator between pairs
+                            text = "Q&A_CONTENT:" + "|||PAIR_SEP|||".join(qa_texts)
+                            text = clean_html_tags(text)
+                            text = filter_ad_phrases(text)
+                            if text and len(text) > 20:
+                                logger.debug(f"Product description (Q&A) found: {len(qa_texts)} pairs")
+                                return text
+                    
+                    # Try to extract structured content (tables, columns)
+                    tables = element.select('table')
+                    columns = element.select('.a-column, .a-row, [class*="column"], [class*="comparison"]')
+                    
+                    if tables:
+                        # Extract table data
+                        table_texts = []
+                        for table in tables:
+                            rows = table.select('tr')
+                            for row in rows:
+                                cells = row.select('td, th')
+                                if cells:
+                                    row_text = ' | '.join([cell.get_text(strip=True) for cell in cells if cell.get_text(strip=True)])
+                                    if row_text:
+                                        table_texts.append(row_text)
+                        if table_texts:
+                            text = '\n'.join(table_texts)
+                            text = clean_html_tags(text)
+                            text = filter_ad_phrases(text)
+                            if text and len(text) > 20:
+                                logger.debug(f"Product description (table) found: {len(text)} chars")
+                                return text
+                    
+                    if columns:
+                        # Extract column-based content (like product comparison)
+                        # Group columns by rows for better structure
+                        rows = element.select('.a-row, [class*="row"]')
+                        if rows:
+                            row_texts = []
+                            for row in rows:
+                                cols = row.select('.a-column, [class*="column"], [class*="col"]')
+                                if cols:
+                                    col_texts = []
+                                    for col in cols:
+                                        col_text = col.get_text(separator=' ', strip=True)
+                                        if col_text and len(col_text) > 5:
+                                            col_texts.append(col_text)
+                                    if col_texts:
+                                        row_texts.append(' | '.join(col_texts))
+                            if row_texts:
+                                text = '\n'.join(row_texts)
+                                text = clean_html_tags(text)
+                                text = filter_ad_phrases(text)
+                                # Remove common navigation text
+                                text = re.sub(r'(Previous page|Next page|Product description|Product Description)', '', text, flags=re.IGNORECASE)
+                                text = re.sub(r'\s+', ' ', text).strip()
+                                if text and len(text) > 20:
+                                    logger.debug(f"Product description (columns) found: {len(text)} chars")
+                                    return text
+                        
+                        # Fallback: extract individual columns
+                        column_texts = []
+                        for col in columns:
+                            col_text = col.get_text(separator=' | ', strip=True)
+                            if col_text and len(col_text) > 10:
+                                column_texts.append(col_text)
+                        if column_texts:
+                            text = '\n'.join(column_texts)
+                            text = clean_html_tags(text)
+                            text = filter_ad_phrases(text)
+                            # Remove common navigation text
+                            text = re.sub(r'(Previous page|Next page|Product description|Product Description)', '', text, flags=re.IGNORECASE)
+                            text = re.sub(r'\s+', ' ', text).strip()
+                            if text and len(text) > 20:
+                                logger.debug(f"Product description (columns) found: {len(text)} chars")
+                                return text
+                    
+                    # Fallback: regular text extraction
                     text = element.get_text(separator=' ', strip=True)
                 else:  # Selenium
                     # Try to get text excluding navigation
@@ -380,9 +475,49 @@ class TextParserAgent(BaseParser):
         
         return result
     
-    def _parse_sustainability_features(self) -> Optional[str]:
-        """Parse 'Sustainability Features' section separately."""
+    def _parse_from_the_brand(self) -> Optional[str]:
+        """Parse 'From the Brand' section."""
         selectors = [
+            '#aplusBrandStory_feature_div',
+            '[data-feature-name="aplusBrandStory"]',
+        ]
+        
+        for selector in selectors:
+            element = self.find_element_by_selector(selector, use_dom=True)
+            if element:
+                # Extract text content, excluding navigation elements
+                if hasattr(element, 'select'):  # BeautifulSoup
+                    # Remove navigation buttons and headings
+                    for nav in element.select('.a-carousel-control, .a-button, h2'):
+                        nav.decompose()
+                    text = element.get_text(separator=' ', strip=True)
+                else:  # Selenium
+                    try:
+                        nav_elements = element.find_elements(By.CSS_SELECTOR, '.a-carousel-control, .a-button, h2')
+                        for nav in nav_elements:
+                            element.execute_script("arguments[0].remove();", nav)
+                    except:
+                        pass
+                    text = element.text.strip()
+                
+                text = clean_html_tags(text)
+                text = filter_ad_phrases(text)
+                
+                # Remove common navigation text
+                text = re.sub(r'(Previous page|Next page|From the brand|From the Brand)', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'\s+', ' ', text).strip()
+                
+                if text and len(text) > 20:  # Minimum meaningful length
+                    logger.debug(f"From the brand found: {len(text)} chars")
+                    return text
+        
+        logger.debug("From the brand not found")
+        return None
+    
+    def _parse_sustainability_features(self) -> Optional[str]:
+        """Parse 'Sustainability Features' section - extract all information including certifications."""
+        selectors = [
+            '#climatePledgeFriendly',  # Main sustainability section
             '#aplusSustainabilityStory_feature_div',
             '[data-feature-name="aplusSustainabilityStory"]',
             '#sustainability_feature_div',
@@ -391,21 +526,133 @@ class TextParserAgent(BaseParser):
         for selector in selectors:
             element = self.find_element_by_selector(selector, use_dom=True)
             if element:
-                # Extract text content
-                if hasattr(element, 'get_text'):  # BeautifulSoup
-                    # Remove navigation elements
-                    for nav in element.select('.a-carousel-control, .a-button, h2'):
-                        nav.decompose()
-                    text = element.get_text(separator=' ', strip=True)
+                # Extract all text content including certifications
+                if hasattr(element, 'select'):  # BeautifulSoup
+                    # Remove main heading "Sustainability features" (it's already in DOCX section title)
+                    for h2 in element.select('h2'):
+                        h2_text = h2.get_text(strip=True).lower()
+                        if 'sustainability features' in h2_text:
+                            h2.decompose()
+                    
+                    # Remove footers with "Discover more" and "Learn more" links
+                    for footer in element.select('footer, .cpf-dpx-footer, .cpf-dpx-sticky-footer'):
+                        footer_text = footer.get_text(strip=True).lower()
+                        if 'discover more' in footer_text or 'learn more' in footer_text or 'climate pledge friendly' in footer_text:
+                            footer.decompose()
+                    
+                    # Collect all sustainability information in order
+                    feature_parts = []
+                    seen_texts = set()  # Track seen texts to avoid duplicates
+                    
+                    # Main description paragraph ("This product has sustainability features recognized...")
+                    main_desc = element.select_one('p.a-size-base.a-color-base')
+                    if main_desc:
+                        desc_text = main_desc.get_text(strip=True)
+                        if desc_text and len(desc_text) > 20:
+                            # Normalize for duplicate check
+                            desc_normalized = desc_text.lower().strip()
+                            if desc_normalized not in seen_texts:
+                                seen_texts.add(desc_normalized)
+                                feature_parts.append(desc_text)
+                    
+                    # Look for sections with sustainability content (like "Organic content")
+                    sections = element.select('.a-section')
+                    for section in sections:
+                        # Skip footers and already processed certifications
+                        if section.select_one('footer, .cpf-dpx-footer'):
+                            continue
+                        
+                        # Look for sub-headings (like "Organic content")
+                        section_heading = section.select_one('h2, h3, h4, .a-text-bold, [class*="heading"]')
+                        if section_heading:
+                            heading_text = section_heading.get_text(strip=True)
+                            heading_lower = heading_text.lower()
+                            
+                            # Skip main heading and generic text
+                            if heading_lower in ['sustainability features', 'climate pledge friendly']:
+                                continue
+                            
+                            # Check if it's a relevant heading (organic, content, certified, etc.)
+                            if any(keyword in heading_lower for keyword in ['organic', 'content', 'certified', 'sustainability']):
+                                if heading_text not in seen_texts:
+                                    seen_texts.add(heading_text.lower())
+                                    feature_parts.append(f"\n{heading_text}")
+                                
+                                # Get paragraphs after this heading
+                                for p in section.select('p'):
+                                    p_text = p.get_text(strip=True)
+                                    if p_text and len(p_text) > 10:
+                                        # Include short descriptions, skip very long ones
+                                        if len(p_text) < 500:
+                                            p_normalized = p_text.lower().strip()
+                                            if p_normalized not in seen_texts:
+                                                seen_texts.add(p_normalized)
+                                                feature_parts.append(p_text)
+                    
+                    # Look for certification badges (like "USDA Organic") - add after content sections
+                    # Check if we have "Organic content" section - if yes, add certification after it
+                    has_organic_content = any('organic content' in part.lower() for part in feature_parts)
+                    
+                    attribute_pills = element.select('.cpf-dpx-attribute-pill-text span, [class*="attribute-pill"] span')
+                    for pill in attribute_pills:
+                        pill_text = pill.get_text(strip=True)
+                        pill_lower = pill_text.lower()
+                        if pill_text and pill_lower not in ['sustainability features', 'sustainability']:
+                            # Check if this certification is already mentioned in seen_texts
+                            if pill_lower in seen_texts:
+                                continue
+                            
+                            # Check if it's a certification badge (USDA Organic, etc.)
+                            if 'organic' in pill_lower or 'certified' in pill_lower or 'usda' in pill_lower:
+                                seen_texts.add(pill_lower)
+                                # If we have "Organic content" section, add "As certified by" after it
+                                if has_organic_content:
+                                    # Find the last paragraph and add certification after it
+                                    feature_parts.append(f"\nAs certified by {pill_text}")
+                                else:
+                                    # Just add the certification
+                                    feature_parts.append(f"\n{pill_text}")
+                    
+                    # If we found structured content, use it
+                    if feature_parts:
+                        text = '\n'.join(feature_parts)
+                    else:
+                        # Fallback: get all text but remove headings and footers
+                        # Remove h2 "Sustainability features"
+                        for h2 in element.select('h2'):
+                            h2_text = h2.get_text(strip=True).lower()
+                            if 'sustainability features' in h2_text:
+                                h2.decompose()
+                        text = element.get_text(separator='\n', strip=True)
                 else:  # Selenium
+                    try:
+                        # Remove h2 "Sustainability features"
+                        h2_elements = element.find_elements(By.CSS_SELECTOR, 'h2')
+                        for h2 in h2_elements:
+                            h2_text = h2.text.strip().lower()
+                            if 'sustainability features' in h2_text:
+                                element.execute_script("arguments[0].remove();", h2)
+                        
+                        # Remove footers
+                        footers = element.find_elements(By.CSS_SELECTOR, 'footer, .cpf-dpx-footer, .cpf-dpx-sticky-footer')
+                        for footer in footers:
+                            footer_text = footer.text.strip().lower()
+                            if 'discover more' in footer_text or 'learn more' in footer_text or 'climate pledge friendly' in footer_text:
+                                element.execute_script("arguments[0].remove();", footer)
+                    except:
+                        pass
                     text = element.text.strip()
                 
                 text = clean_html_tags(text)
                 text = filter_ad_phrases(text)
                 
-                # Remove common navigation text
-                text = re.sub(r'(Previous page|Next page|Sustainability|Sustainability Features)', '', text, flags=re.IGNORECASE)
-                text = re.sub(r'\s+', ' ', text).strip()
+                # Remove duplicate phrases and clean up
+                # Remove "Sustainability features" if it appears multiple times
+                text = re.sub(r'Sustainability features\s*', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'(Previous page|Next page|Discover more products with sustainability features\.?\s*Learn more|CLIMATE PLEDGE FRIENDLY)', '', text, flags=re.IGNORECASE)
+                text = re.sub(r'\n\s*\n+', '\n', text)  # Clean up multiple newlines
+                text = re.sub(r'^\s+|\s+$', '', text, flags=re.MULTILINE)  # Trim each line
+                text = text.strip()
                 
                 if text and len(text) > 20:  # Minimum meaningful length
                     logger.debug(f"Sustainability features found: {len(text)} chars")
@@ -462,13 +709,21 @@ class TextParserAgent(BaseParser):
                     if list_item:
                         bold_span = list_item.select_one('span.a-text-bold')
                         if bold_span:
-                            key = clean_html_tags(bold_span.get_text(strip=True))
+                            # Get key text and clean it (remove colon, invisible chars, extra spaces)
+                            key_text = bold_span.get_text()
+                            # Remove invisible RTL markers (‏, ‎) and normalize whitespace
+                            key_text = re.sub(r'[\u200E\u200F]', '', key_text)  # Remove RTL markers
+                            key_text = re.sub(r'\s*:\s*', '', key_text)  # Remove colon and spaces around it
+                            key = clean_html_tags(key_text.strip())
                             # Get all text after bold span
                             bold_span.extract()  # Remove bold span to get remaining text
                             value = clean_html_tags(list_item.get_text(separator=' ', strip=True))
                         else:
                             # Fallback: try to split by colon
-                            text = clean_html_tags(list_item.get_text(strip=True))
+                            text = list_item.get_text()
+                            # Remove invisible RTL markers
+                            text = re.sub(r'[\u200E\u200F]', '', text)
+                            text = clean_html_tags(text.strip())
                             if ':' in text:
                                 parts = text.split(':', 1)
                                 if len(parts) == 2:
@@ -480,7 +735,10 @@ class TextParserAgent(BaseParser):
                                 continue
                     else:
                         # Fallback: get all text and split by colon
-                        text = clean_html_tags(bullet.get_text(strip=True))
+                        text = bullet.get_text()
+                        # Remove invisible RTL markers
+                        text = re.sub(r'[\u200E\u200F]', '', text)
+                        text = clean_html_tags(text.strip())
                         if ':' in text:
                             parts = text.split(':', 1)
                             if len(parts) == 2:
@@ -495,14 +753,25 @@ class TextParserAgent(BaseParser):
                         list_item = bullet.find_element(By.CSS_SELECTOR, 'span.a-list-item')
                         try:
                             bold_span = list_item.find_element(By.CSS_SELECTOR, 'span.a-text-bold')
-                            key = clean_html_tags(bold_span.text.strip())
+                            # Get key text and clean it (remove colon, invisible chars, extra spaces)
+                            key_text = bold_span.text
+                            # Remove invisible RTL markers (‏, ‎) and normalize whitespace
+                            key_text = re.sub(r'[\u200E\u200F]', '', key_text)  # Remove RTL markers
+                            key_text = re.sub(r'\s*:\s*', '', key_text)  # Remove colon and spaces around it
+                            key = clean_html_tags(key_text.strip())
                             # Get all text from list_item, then remove bold text
                             full_text = list_item.text.strip()
                             bold_text = bold_span.text.strip()
                             value = full_text.replace(bold_text, '', 1).strip()
+                            # Clean value from invisible chars
+                            value = re.sub(r'[\u200E\u200F]', '', value)
+                            value = clean_html_tags(value.strip())
                         except:
                             # Fallback: split by colon
-                            text = clean_html_tags(list_item.text.strip())
+                            text = list_item.text
+                            # Remove invisible RTL markers
+                            text = re.sub(r'[\u200E\u200F]', '', text)
+                            text = clean_html_tags(text.strip())
                             if ':' in text:
                                 parts = text.split(':', 1)
                                 if len(parts) == 2:
@@ -514,7 +783,10 @@ class TextParserAgent(BaseParser):
                                 continue
                     except:
                         # Fallback: get all text and split by colon
-                        text = clean_html_tags(bullet.text.strip())
+                        text = bullet.text
+                        # Remove invisible RTL markers
+                        text = re.sub(r'[\u200E\u200F]', '', text)
+                        text = clean_html_tags(text.strip())
                         if ':' in text:
                             parts = text.split(':', 1)
                             if len(parts) == 2:

@@ -42,12 +42,17 @@ class BaseParser:
             except Exception as e:
                 logger.debug(f"DOM selector failed for {selector}: {e}")
         
-        # Fallback to Selenium - log for monitoring
-        logger.info(f"⚠️  Fallback to Selenium for selector: {selector[:60]}...")
+        # Fallback to Selenium - use explicit wait instead of implicit wait for faster failure
+        logger.debug(f"⚠️  Fallback to Selenium for selector: {selector[:60]}...")
         try:
             driver = self.browser.get_driver()
             from selenium.webdriver.common.by import By
-            element = driver.find_element(By.CSS_SELECTOR, selector)
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # Use explicit wait with short timeout (0.5s) instead of implicit wait
+            wait = WebDriverWait(driver, 0.5)
+            element = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
             logger.debug(f"✓ Selenium found element for: {selector[:60]}...")
             return element
         except Exception as e:
@@ -74,12 +79,17 @@ class BaseParser:
             except Exception as e:
                 logger.debug(f"DOM selector failed for {selector}: {e}")
         
-        # Fallback to Selenium - log for monitoring
-        logger.info(f"⚠️  Fallback to Selenium for selector: {selector[:60]}...")
+        # Fallback to Selenium - use explicit wait instead of implicit wait for faster failure
+        logger.debug(f"⚠️  Fallback to Selenium for selector: {selector[:60]}...")
         try:
             driver = self.browser.get_driver()
             from selenium.webdriver.common.by import By
-            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            from selenium.webdriver.support.ui import WebDriverWait
+            from selenium.webdriver.support import expected_conditions as EC
+            
+            # Use explicit wait with short timeout (0.5s) instead of implicit wait
+            wait = WebDriverWait(driver, 0.5)
+            elements = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, selector)))
             count = len(elements) if elements else 0
             logger.debug(f"✓ Selenium found {count} elements for: {selector[:60]}...")
             return list(elements) if elements else []

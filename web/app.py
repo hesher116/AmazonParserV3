@@ -86,7 +86,6 @@ def start_parsing():
             'images_aplus_manufacturer': request.form.get('images_aplus_manufacturer') == 'on',
             'text': request.form.get('text') == 'on',
             'reviews': request.form.get('reviews') == 'on',
-            'qa': request.form.get('qa') == 'on',
             'variants': request.form.get('variants') == 'on',
         }
         

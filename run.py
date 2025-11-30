@@ -94,7 +94,7 @@ def main():
                     logger.warning("Port cleanup may have failed, trying alternative method...")
                     # Fallback: use cleanup script
                     try:
-                        subprocess.run([sys.executable, 'cleanup_port.py', str(port)], 
+                        subprocess.run([sys.executable, 'scripts/cleanup_port.py', str(port)], 
                                      timeout=10, capture_output=True)
                     except:
                         pass

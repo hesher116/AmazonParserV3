@@ -17,11 +17,13 @@
 2. **Text Parser Agent** - Парсинг текстової інформації:
    - Назва продукту
    - Бренд
-   - Ціна (поточна та стара)
+   - Ціна (формат: "Price($): 6.99")
    - ASIN
    - Product Overview (таблиця)
    - About this item (bullets)
-   - Ingredients
+   - From the Brand
+   - Product Description (включає Q&A, якщо присутній)
+   - Sustainability Features
    - Important Information
    - Technical Details
    - Product Details
@@ -31,7 +33,7 @@
    - Детальні відгуки (ім'я, рейтинг, текст, дата, verified purchase)
    - Зображення з відгуків
 
-4. **Q&A Parser Agent** - Парсинг питань та відповідей
+4. **Q&A** - Автоматично парситься як частина Product Description (якщо присутній)
 
 5. **Variant Detector Agent** - Детекція варіантів:
    - Автоматичне виявлення варіантів (Color/Size/Style)
@@ -128,6 +130,14 @@ python run.py
 ```
 
 Відкрийте браузер та перейдіть на `http://127.0.0.1:5000`
+
+### Додаткові скрипти
+
+У папці `scripts/` знаходяться допоміжні скрипти:
+- `analyze_dom.py` - аналіз DOM структури сторінки продукту
+- `check_port.py` - перевірка доступності порту
+- `cleanup_port.py` - очищення зайнятого порту
+- `test_aplus_selectors.py` - тестування селекторів для A+ контенту
 
 ## ⚙️ Конфігурація
 
