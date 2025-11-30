@@ -65,8 +65,10 @@ class DocxGenerator:
             if product_url:
                 self._add_url(product_url)
             
-            # 3. Product Information (Basic Info: Brand, ASIN, Price)
-            self._add_basic_info(text_data)
+            # 3. Product Information (Basic Info: Brand, ASIN, Price) - only if we have text data
+            has_basic_info = text_data.get('brand') or text_data.get('asin') or text_data.get('price')
+            if has_basic_info:
+                self._add_basic_info(text_data)
             
             # 4. Product Overview
             if text_data.get('product_overview'):
@@ -284,6 +286,11 @@ class DocxGenerator:
         if summary.get('customers_say'):
             self.doc.add_heading('Customers Say', level=2)
             self.doc.add_paragraph(summary['customers_say'])
+            self.doc.add_paragraph()
+        
+        # Top reviews from the United States heading
+        if summary.get('top_reviews_heading'):
+            self.doc.add_heading(summary['top_reviews_heading'], level=2)
         
         # Key aspects
         if summary.get('key_aspects'):
@@ -313,8 +320,6 @@ class DocxGenerator:
                 info_parts.append(review['date'])
             if review.get('verified_purchase'):
                 info_parts.append("Verified Purchase")
-            if review.get('variant'):
-                info_parts.append(review['variant'])
             
             if info_parts:
                 self.doc.add_paragraph(' | '.join(info_parts))
@@ -398,16 +403,24 @@ class DocxGenerator:
             if not img_files:
                 continue
             
-            # Sort files to ensure correct numerical order (1, 2, 3, ..., 10, 11, not 1, 10, 11, 2, 3)
+            # Sort files to ensure correct numerical order (A+1.jpg, A+2.jpg, A+3.1(CAROUSEL).jpg, A+3.2(CAROUSEL).jpg, etc.)
             def natural_sort_key(filename):
-                """Natural sort key for filenames - sort by number only."""
+                """Natural sort key for filenames - handles A+1.jpg, A+2.jpg, A+3.1(CAROUSEL).jpg format."""
                 path = Path(filename)
                 name = path.stem
-                # Extract number if present - use only the number for sorting
+                
+                # Extract all numbers from filename (e.g., "A+3.1(CAROUSEL)" -> [3, 1])
                 numbers = re.findall(r'\d+', name)
+                
                 if numbers:
-                    # Return tuple: (0, number) to ensure numbers come first, sorted numerically
-                    return (0, int(numbers[-1]))  # Use last number in case of multiple
+                    # Convert all numbers to integers for proper numerical sorting
+                    # This ensures: A+1 < A+2 < A+3.1 < A+3.2 < A+4.1 < A+10
+                    num_tuple = tuple(int(n) for n in numbers)
+                    # Return tuple with numbers for proper sorting
+                    # Add prefix to handle CAROUSEL files correctly (they come after regular files with same number)
+                    has_carousel = 'CAROUSEL' in name.upper()
+                    return (0, num_tuple, 1 if has_carousel else 0, name)
+                
                 # If no number, sort alphabetically
                 return (1, name)
             

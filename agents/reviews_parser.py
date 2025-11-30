@@ -76,7 +76,8 @@ class ReviewsParserAgent(BaseParser):
             'rating_count': None,
             'star_distribution': {},
             'customers_say': None,
-            'key_aspects': []
+            'key_aspects': [],
+            'top_reviews_heading': None  # "Top reviews from the United States"
         }
         
         # Overall rating
@@ -136,13 +137,69 @@ class ReviewsParserAgent(BaseParser):
                         percent = percent_match.group(1)
                         summary['star_distribution'][f'{stars}_star'] = f'{percent}%'
         
-        # "Customers say" summary
-        say_element = self.find_element_by_selector(
-            '[data-hook="cr-summarization-attribute"]',
-            use_dom=True
-        )
-        if say_element:
-            summary['customers_say'] = clean_html_tags(self.get_text_from_element(say_element))
+        # "Customers say" summary - find in #product-summary with proper structure
+        customers_say_container = self.find_element_by_selector('#product-summary, [data-hook="cr-insights-widget-summary"]', use_dom=True)
+        if customers_say_container:
+            # Check if heading exists
+            if hasattr(customers_say_container, 'select_one'):  # BeautifulSoup
+                heading = customers_say_container.select_one('h3[data-hook="cr-insights-heading-label"], h3')
+                if heading:
+                    heading_text = heading.get_text(strip=True)
+                    if 'customers say' in heading_text.lower():
+                        # Find the paragraph with text
+                        text_para = customers_say_container.select_one('p.a-spacing-small span, p.a-spacing-small')
+                        if text_para:
+                            say_text = clean_html_tags(text_para.get_text(strip=True))
+                            if say_text and len(say_text) > 20:
+                                summary['customers_say'] = say_text
+                                logger.debug(f"Found 'Customers say': {say_text[:100]}...")
+            else:  # Selenium
+                try:
+                    driver = self.browser.get_driver()
+                    heading = customers_say_container.find_element(By.CSS_SELECTOR, 'h3[data-hook="cr-insights-heading-label"], h3')
+                    heading_text = heading.text.strip()
+                    if 'customers say' in heading_text.lower():
+                        text_para = customers_say_container.find_element(By.CSS_SELECTOR, 'p.a-spacing-small span, p.a-spacing-small')
+                        say_text = clean_html_tags(text_para.text.strip())
+                        if say_text and len(say_text) > 20:
+                            summary['customers_say'] = say_text
+                            logger.debug(f"Found 'Customers say': {say_text[:100]}...")
+                except Exception as e:
+                    logger.debug(f"Error parsing 'Customers say': {e}")
+        
+        # "Top reviews from the United States" heading - use data-hook="dp-local-reviews-header"
+        try:
+            # Try specific selector first
+            heading = self.find_element_by_selector(
+                'h3[data-hook="dp-local-reviews-header"]',
+                use_dom=True
+            )
+            if heading:
+                heading_text = clean_html_tags(self.get_text_from_element(heading))
+                if heading_text:
+                    summary['top_reviews_heading'] = heading_text
+                    logger.debug(f"Found 'Top reviews' heading: {heading_text}")
+            else:
+                # Fallback: search all h3 headings
+                if self.dom_soup:
+                    headings = self.dom_soup.select('h3, h2')
+                    for heading in headings:
+                        heading_text = heading.get_text(strip=True)
+                        if 'top reviews' in heading_text.lower() and 'united states' in heading_text.lower():
+                            summary['top_reviews_heading'] = heading_text
+                            logger.debug(f"Found 'Top reviews' heading: {heading_text}")
+                            break
+                else:  # Selenium
+                    driver = self.browser.get_driver()
+                    headings = driver.find_elements(By.CSS_SELECTOR, 'h3, h2')
+                    for heading in headings:
+                        heading_text = heading.text.strip()
+                        if 'top reviews' in heading_text.lower() and 'united states' in heading_text.lower():
+                            summary['top_reviews_heading'] = heading_text
+                            logger.debug(f"Found 'Top reviews' heading: {heading_text}")
+                            break
+        except Exception as e:
+            logger.debug(f"Error checking for top reviews heading: {e}")
         
         # Key aspects (Softness, Scent, etc.)
         aspects = self.find_elements_by_selector(
@@ -223,89 +280,91 @@ class ReviewsParserAgent(BaseParser):
             'helpful_count': None
         }
         
+        # Check if element is BeautifulSoup or Selenium
+        is_soup = hasattr(element, 'select_one')
+        
         # Reviewer name
         try:
-            name_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '.a-profile-name, [data-hook="genome-widget"]'
-            )
-            review['reviewer_name'] = clean_html_tags(name_el.text)
-        except NoSuchElementException:
+            if is_soup:
+                name_el = element.select_one('.a-profile-name, [data-hook="genome-widget"] .a-profile-name')
+            else:
+                name_el = element.find_element(By.CSS_SELECTOR, '.a-profile-name, [data-hook="genome-widget"] .a-profile-name')
+            if name_el:
+                review['reviewer_name'] = clean_html_tags(self.get_text_from_element(name_el))
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Rating
         try:
-            rating_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="review-star-rating"] span, .a-icon-star span'
-            )
-            rating_text = rating_el.get_attribute('textContent') or rating_el.text
-            parsed = parse_rating(rating_text)
-            review['rating'] = parsed.get('rating')
-        except NoSuchElementException:
+            if is_soup:
+                rating_el = element.select_one('[data-hook="review-star-rating"] span, .a-icon-star span, [data-hook="review-star-rating"]')
+            else:
+                rating_el = element.find_element(By.CSS_SELECTOR, '[data-hook="review-star-rating"] span, .a-icon-star span')
+            if rating_el:
+                rating_text = self.get_text_from_element(rating_el)
+                parsed = parse_rating(rating_text)
+                review['rating'] = parsed.get('rating')
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Title
         try:
-            title_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="review-title"] span, .review-title'
-            )
-            review['title'] = clean_html_tags(title_el.text)
-        except NoSuchElementException:
+            if is_soup:
+                title_el = element.select_one('[data-hook="review-title"] span, [data-hook="review-title"], .review-title')
+            else:
+                title_el = element.find_element(By.CSS_SELECTOR, '[data-hook="review-title"] span, .review-title')
+            if title_el:
+                review['title'] = clean_html_tags(self.get_text_from_element(title_el))
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Review text
         try:
-            text_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="review-body"] span, .review-text'
-            )
-            review['text'] = filter_ad_phrases(clean_html_tags(text_el.text))
-        except NoSuchElementException:
+            if is_soup:
+                text_el = element.select_one('[data-hook="review-body"] span, [data-hook="review-body"], .review-text')
+            else:
+                text_el = element.find_element(By.CSS_SELECTOR, '[data-hook="review-body"] span, .review-text')
+            if text_el:
+                review['text'] = filter_ad_phrases(clean_html_tags(self.get_text_from_element(text_el)))
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Date
         try:
-            date_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="review-date"], .review-date'
-            )
-            review['date'] = clean_html_tags(date_el.text)
-        except NoSuchElementException:
+            if is_soup:
+                date_el = element.select_one('[data-hook="review-date"], .review-date')
+            else:
+                date_el = element.find_element(By.CSS_SELECTOR, '[data-hook="review-date"], .review-date')
+            if date_el:
+                review['date'] = clean_html_tags(self.get_text_from_element(date_el))
+        except (NoSuchElementException, AttributeError):
             pass
         
-        # Variant (Color, Size, etc.)
-        try:
-            variant_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="format-strip"], .a-size-mini.a-color-secondary'
-            )
-            review['variant'] = clean_html_tags(variant_el.text)
-        except NoSuchElementException:
-            pass
+        # Variant (Color, Size, etc.) - removed, no longer needed
         
         # Verified Purchase
         try:
-            element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="avp-badge"], .a-color-state'
-            )
-            review['verified_purchase'] = True
-        except NoSuchElementException:
+            if is_soup:
+                verified_el = element.select_one('[data-hook="avp-badge"], .a-color-state')
+            else:
+                verified_el = element.find_element(By.CSS_SELECTOR, '[data-hook="avp-badge"], .a-color-state')
+            if verified_el:
+                review['verified_purchase'] = True
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Helpful count
         try:
-            helpful_el = element.find_element(
-                By.CSS_SELECTOR, 
-                '[data-hook="helpful-vote-statement"], .a-size-small.a-color-tertiary'
-            )
-            helpful_text = helpful_el.text
-            match = re.search(r'(\d+)', helpful_text)
-            if match:
-                review['helpful_count'] = match.group(1)
-        except NoSuchElementException:
+            if is_soup:
+                helpful_el = element.select_one('[data-hook="helpful-vote-statement"], .a-size-small.a-color-tertiary')
+            else:
+                helpful_el = element.find_element(By.CSS_SELECTOR, '[data-hook="helpful-vote-statement"], .a-size-small.a-color-tertiary')
+            if helpful_el:
+                helpful_text = self.get_text_from_element(helpful_el)
+                match = re.search(r'(\d+)', helpful_text)
+                if match:
+                    review['helpful_count'] = match.group(1)
+        except (NoSuchElementException, AttributeError):
             pass
         
         # Only return if we have at least rating or text
@@ -344,7 +403,7 @@ class ReviewsParserAgent(BaseParser):
             )
             
             self.browser.scroll_to_element(carousel)
-            self.browser._random_sleep(0.5, 1.0)
+            # No delay needed - scroll_to_element now waits for element visibility
             
             # Find all images in carousel
             images = carousel.find_elements(By.TAG_NAME, 'img')

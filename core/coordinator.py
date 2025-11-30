@@ -22,9 +22,8 @@ from agents.aplus_brand_parser import APlusBrandParser
 from agents.aplus_manufacturer_parser import APlusManufacturerParser
 from agents.text_parser import TextParserAgent
 from agents.reviews_parser import ReviewsParserAgent
-from agents.variant_detector import VariantDetectorAgent
 from agents.validator import ValidatorAgent
-from utils.file_utils import create_output_structure, create_variant_structure, sanitize_filename
+from utils.file_utils import create_output_structure, sanitize_filename
 from utils.logger import get_logger
 from config.settings import Settings
 
@@ -78,7 +77,6 @@ class Coordinator:
             'images': {},
             'reviews': {},
             'qa': {},
-            'variants': {},
             'validation': {},
             'errors': [],
             'output_dir': None,
@@ -181,11 +179,6 @@ class Coordinator:
             # Update task with product name
             self.db.update_task(task_id, product_name=product_name)
             
-            # Check for variants if enabled
-            if config.get('variants', False):
-                self._update_progress('Detecting variants...', 20)
-                self._handle_variants(config)
-            
             # Run selected agents
             current_progress = 25
             
@@ -212,10 +205,10 @@ class Coordinator:
                 current_progress += 20
             
             # Validate results (only if we have more than just images)
-            has_other_data = config.get('reviews', False)
+            has_other_data = config.get('reviews', False) or config.get('text', False)
             if has_other_data:
                 self._update_progress('Validating data...', 85)
-                self._run_validation()
+                self._run_validation(config)
             
             # Generate DOCX (generate even if only images are selected)
             has_images = any([
@@ -233,7 +226,9 @@ class Coordinator:
                            len(images_data.get('aplus_brand', [])) > 0 or \
                            len(images_data.get('aplus_manufacturer', [])) > 0
             has_text = self.results.get('text', {}).get('title')
-            if (has_images and has_any_images) or has_text:
+            has_reviews = self.results.get('reviews', {}).get('summary') or self.results.get('reviews', {}).get('reviews')
+            # Generate DOCX if we have text, images, or reviews
+            if (has_images and has_any_images) or has_text or has_reviews:
                 self._update_progress('Generating document...', 90 if has_other_data else 80)
                 self._generate_docx()
             
@@ -298,7 +293,10 @@ class Coordinator:
             # This reduces fallback to Selenium
             logger.debug("Waiting for text content to load...")
             try:
-                wait = WebDriverWait(driver, 5)  # Max 5 seconds
+                # In headless mode, use longer timeout for dynamic content
+                wait_timeout = 10 if Settings.HEADLESS else 5
+                wait = WebDriverWait(driver, wait_timeout)
+                
                 # Wait for at least one of the main text elements (including price blocks)
                 wait.until(EC.any_of(
                     EC.presence_of_element_located((By.CSS_SELECTOR, '#productTitle')),
@@ -313,6 +311,46 @@ class Coordinator:
                     EC.presence_of_element_located((By.CSS_SELECTOR, '#climatePledgeFriendly')),
                 ))
                 logger.debug("Text content loaded, saving DOM dump...")
+                
+                # In headless mode, wait specifically for price to be visible with actual text
+                if Settings.HEADLESS:
+                    logger.debug("Waiting for price element with text in headless mode...")
+                    try:
+                        price_wait = WebDriverWait(driver, 5)  # Increased to 5 seconds for price in headless
+                        # Wait for price element that has actual price text (not empty)
+                        def price_has_text(driver):
+                            price_selectors = [
+                                '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+                                '#corePrice_feature_div .a-price .a-offscreen',
+                                '#apexPriceToPay .a-offscreen',
+                                '.a-price .a-offscreen',
+                                '#corePriceDisplay_desktop_feature_div',
+                                '#corePrice_feature_div',
+                                '#apexPriceToPay',
+                            ]
+                            for selector in price_selectors:
+                                try:
+                                    elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                                    for elem in elements:
+                                        # Try multiple ways to get text
+                                        text = elem.text or elem.get_attribute('textContent') or elem.get_attribute('innerText') or ''
+                                        # Also check for aria-label which sometimes contains price
+                                        aria_label = elem.get_attribute('aria-label') or ''
+                                        combined_text = f"{text} {aria_label}"
+                                        if combined_text and ('$' in combined_text or re.search(r'\d+\.\d+', combined_text)):
+                                            logger.debug(f"Price found in headless mode via selector: {selector}, text: {combined_text[:50]}")
+                                            return True
+                                except Exception as e:
+                                    logger.debug(f"Error checking price selector {selector}: {e}")
+                                    continue
+                            return False
+                        
+                        price_wait.until(price_has_text)
+                        logger.info("✓ Price element with text found in headless mode")
+                        # No delay needed - we're saving DOM dump immediately after this
+                    except Exception as e:
+                        logger.warning(f"Price wait timeout in headless mode (continuing anyway): {e}")
+                
             except Exception as e:
                 logger.debug(f"Text content wait timeout/error (continuing anyway): {e}")
             
@@ -366,58 +404,7 @@ class Coordinator:
         logger.error(f"All {max_retries} attempts failed")
         return {'errors': [str(last_error)]}
     
-    def _handle_variants(self, config: Dict):
-        """Handle variant detection and parsing."""
-        variant_agent = VariantDetectorAgent(self.browser_pool)
-        variant_result = self._run_with_retry(variant_agent.parse)
-        self.results['variants'] = variant_result
-        
-        if variant_result.get('has_variants') and variant_result.get('variants'):
-            variants = variant_result['variants']
-            logger.info(f"Found {len(variants)} variants, parsing each...")
-            
-            # Store main product results
-            main_results = dict(self.results)
-            
-            # Parse each variant
-            for i, variant in enumerate(variants):
-                if not variant.get('available', True):
-                    logger.debug(f"Skipping unavailable variant: {variant.get('name')}")
-                    continue
-                
-                if variant.get('selected'):
-                    # This is the current variant, already parsed
-                    continue
-                
-                self._update_progress(
-                    f"Parsing variant: {variant.get('name', 'Unknown')}...",
-                    25 + (i * 5) % 20
-                )
-                
-                try:
-                    # Navigate to variant
-                    if variant_agent.click_variant(variant):
-                        variant_name = variant.get('name', f'variant_{i}')
-                        variant_dir = create_variant_structure(self.output_dir, variant_name)
-                        
-                        # Parse this variant
-                        variant_results = self._parse_variant(variant_dir, config)
-                        
-                        # Store variant results
-                        if 'variant_results' not in self.results:
-                            self.results['variant_results'] = []
-                        
-                        self.results['variant_results'].append({
-                            'name': variant_name,
-                            'asin': variant.get('asin'),
-                            'output_dir': variant_dir,
-                            'results': variant_results
-                        })
-                        
-                except Exception as e:
-                    logger.error(f"Failed to parse variant {variant.get('name')}: {e}")
-    
-    def _parse_variant(self, output_dir: str, config: Dict) -> Dict:
+    def _run_image_agents(self, config: Dict):
         """Parse a single variant."""
         results = {}
         
@@ -656,10 +643,10 @@ class Coordinator:
         # Q&A is now parsed as part of Product Description in text_parser
         pass
     
-    def _run_validation(self):
+    def _run_validation(self, config: Dict = None):
         """Run validation agent."""
         agent = ValidatorAgent()
-        self.results['validation'] = agent.validate(self.results, self.output_dir)
+        self.results['validation'] = agent.validate(self.results, self.output_dir, config=config)
     
     def _generate_docx(self):
         """Generate DOCX document."""
@@ -729,8 +716,7 @@ class Coordinator:
                 'aplus': aplus_product_count + aplus_brand_count + aplus_manufacturer_count,
             },
             'reviews_count': len(self.results.get('reviews', {}).get('reviews', [])),
-            'qa_count': len(self.results.get('qa', {}).get('qa_pairs', [])),
-            'variants_count': len(self.results.get('variants', {}).get('variants', [])),
+            'qa_count': self.results.get('text', {}).get('qa_count', 0),  # Q&A is now part of text parsing
             'validation_score': self.results.get('validation', {}).get('completeness_score', 0),
             'processing_time_seconds': round(processing_time, 2),
             'processing_time_formatted': self._format_processing_time(processing_time),

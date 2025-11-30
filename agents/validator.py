@@ -17,13 +17,14 @@ class ValidatorAgent:
     # Optional but important fields
     IMPORTANT_FIELDS = ['brand', 'about_this_item', 'product_overview']
     
-    def validate(self, results: Dict, output_dir: str = None) -> Dict:
+    def validate(self, results: Dict, output_dir: str = None, config: Dict = None) -> Dict:
         """
         Validate collected results.
         
         Args:
             results: Dictionary with all parsing results
             output_dir: Output directory to check for images
+            config: Parsing configuration to know what was selected
             
         Returns:
             Validation report dictionary
@@ -41,10 +42,11 @@ class ValidatorAgent:
         }
         
         try:
-            # Validate text data
+            # Validate text data only if text parsing was selected
             text_results = results.get('text', {})
-            self._validate_required_fields(text_results, report)
-            self._validate_important_fields(text_results, report)
+            if config and config.get('text', False):
+                self._validate_required_fields(text_results, report)
+                self._validate_important_fields(text_results, report)
             
             # Validate images
             if output_dir:
@@ -64,10 +66,6 @@ class ValidatorAgent:
             if qa_results:
                 self._validate_qa(qa_results, report)
             
-            # Validate variants
-            variant_results = results.get('variants', {})
-            if variant_results:
-                self._validate_variants(variant_results, report)
             
             # Calculate completeness score
             report['completeness_score'] = self._calculate_completeness(results, report)
@@ -89,8 +87,8 @@ class ValidatorAgent:
             value = text_results.get(field)
             
             if field == 'price':
-                # Price is a dict, check for current_price
-                if not value or not value.get('current_price'):
+                # Price is now a string in format "Price($): 6.99"
+                if not value or not isinstance(value, str) or 'Price($):' not in value:
                     report['missing_required'].append(field)
                     report['is_valid'] = False
             elif not value:
@@ -200,18 +198,6 @@ class ValidatorAgent:
             for error in qa_results['errors']:
                 report['warnings'].append(f"Q&A parsing error: {error}")
     
-    def _validate_variants(self, variant_results: Dict, report: Dict):
-        """Validate variant data."""
-        variants = variant_results.get('variants', [])
-        
-        # Check for variants without ASIN
-        no_asin = sum(1 for v in variants if not v.get('asin'))
-        if no_asin > 0:
-            report['warnings'].append(f"Found {no_asin} variants without ASIN")
-        
-        if variant_results.get('errors'):
-            for error in variant_results['errors']:
-                report['warnings'].append(f"Variant parsing error: {error}")
     
     def _calculate_completeness(self, results: Dict, report: Dict) -> float:
         """Calculate overall completeness score (0-100)."""
@@ -226,7 +212,7 @@ class ValidatorAgent:
             max_score += 13.33
             value = text_results.get(field)
             if field == 'price':
-                if value and value.get('current_price'):
+                if value and isinstance(value, str) and 'Price($):' in value:
                     score += 13.33
             elif value:
                 score += 13.33
@@ -270,17 +256,15 @@ class ValidatorAgent:
         image_results = results.get('images', {})
         review_results = results.get('reviews', {})
         qa_results = results.get('qa', {})
-        variant_results = results.get('variants', {})
         
         summary = {
             'product_title': text_results.get('title', 'Unknown'),
             'asin': text_results.get('asin', 'Unknown'),
-            'has_price': bool(text_results.get('price', {}).get('current_price')),
+            'has_price': bool(text_results.get('price') and isinstance(text_results.get('price'), str) and 'Price($):' in str(text_results.get('price', ''))),
             'image_count': report.get('image_stats', {}).get('total', 0),
             'review_count': len(review_results.get('reviews', [])),
             'rating': review_results.get('summary', {}).get('rating'),
             'qa_count': len(qa_results.get('qa_pairs', [])),
-            'variant_count': len(variant_results.get('variants', [])),
             'warning_count': len(report.get('warnings', [])),
             'completeness': f"{report.get('completeness_score', 0):.1f}%"
         }

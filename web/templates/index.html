@@ -41,27 +41,27 @@
                                             <strong>Select All Images</strong>
                                         </label>
                                         <label class="checkbox-label">
-                                            <input type="checkbox" name="images_hero" class="image-checkbox">
+                                            <input type="checkbox" name="images_hero" class="image-checkbox" onchange="updateSelectAllImages()">
                                             <span class="checkmark"></span>
                                             Hero Image
                                         </label>
                                         <label class="checkbox-label">
-                                            <input type="checkbox" name="images_gallery" class="image-checkbox">
+                                            <input type="checkbox" name="images_gallery" class="image-checkbox" onchange="updateSelectAllImages()">
                                             <span class="checkmark"></span>
                                             Product Gallery
                                         </label>
                                         <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_product" class="image-checkbox">
+                                            <input type="checkbox" name="images_aplus_product" class="image-checkbox" onchange="updateSelectAllImages()">
                                             <span class="checkmark"></span>
                                             A+ Product Description
                                         </label>
                                         <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_brand" class="image-checkbox">
+                                            <input type="checkbox" name="images_aplus_brand" class="image-checkbox" onchange="updateSelectAllImages()">
                                             <span class="checkmark"></span>
                                             A+ Brand Story
                                         </label>
                                         <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_manufacturer" class="image-checkbox">
+                                            <input type="checkbox" name="images_aplus_manufacturer" class="image-checkbox" onchange="updateSelectAllImages()">
                                             <span class="checkmark"></span>
                                             A+ From the Manufacturer
                                         </label>
@@ -75,11 +75,6 @@
                                         <input type="checkbox" name="reviews">
                                         <span class="checkmark"></span>
                                         Customer Reviews
-                                    </label>
-                                    <label class="checkbox-label">
-                                        <input type="checkbox" name="variants">
-                                        <span class="checkmark"></span>
-                                        Variants (Color/Size/Style)
                                     </label>
                                 </div>
                             </div>
@@ -127,7 +122,6 @@
                                 <span title="A+ Manufacturer images">A+ Mfr: {{ r.images.aplus_manufacturer if r.images and r.images.aplus_manufacturer else 0 }}</span>
                                 <span title="Reviews">Reviews: {{ r.reviews_count if r.reviews_count else 0 }}</span>
                                 <span title="Q&A pairs">Q&A: {{ r.qa_count if r.qa_count else 0 }}</span>
-                                <span title="Variants">Variants: {{ r.variants_count if r.variants_count else 0 }}</span>
                             </div>
                             {% endif %}
                             {% if task.error_message %}
@@ -149,6 +143,25 @@
             imageCheckboxes.forEach(cb => {
                 cb.checked = checkbox.checked;
             });
+        }
+        
+        function updateSelectAllImages() {
+            const imageCheckboxes = document.querySelectorAll('.image-checkbox');
+            const selectAllCheckbox = document.getElementById('select_all_images');
+            const allChecked = Array.from(imageCheckboxes).every(cb => cb.checked);
+            const someChecked = Array.from(imageCheckboxes).some(cb => cb.checked);
+            
+            // Update "Select All Images" checkbox state
+            if (allChecked && imageCheckboxes.length > 0) {
+                selectAllCheckbox.checked = true;
+                selectAllCheckbox.indeterminate = false;
+            } else if (someChecked) {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = true;
+            } else {
+                selectAllCheckbox.checked = false;
+                selectAllCheckbox.indeterminate = false;
+            }
         }
         const parseForm = document.getElementById('parseForm');
         const submitBtn = document.getElementById('submitBtn');
@@ -294,7 +307,6 @@
                             <span title="A+ Manufacturer images">A+ Mfr: ${aplus_manufacturer}</span>
                             <span title="Reviews">Reviews: ${task.results.reviews_count || 0}</span>
                             <span title="Q&A pairs">Q&A: ${task.results.qa_count || 0}</span>
-                            <span title="Variants">Variants: ${task.results.variants_count || 0}</span>
                         </div>
                         ` : ''}
                         ${task.error_message ? `
