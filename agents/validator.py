@@ -116,7 +116,6 @@ class ValidatorAgent:
             'product': 0,
             'aplus_brand': 0,
             'aplus_product': 0,
-            'qa_images': 0,
             'total': 0
         }
         
@@ -129,7 +128,6 @@ class ValidatorAgent:
                 ('product', 'product'),
                 ('aplus_brand', 'aplus_brand'),
                 ('aplus_product', 'aplus_product'),
-                ('QAImages', 'qa_images')
             ]:
                 dir_path = base_path / subdir
                 if dir_path.exists():

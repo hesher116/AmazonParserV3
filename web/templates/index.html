@@ -18,7 +18,7 @@
                 <section class="panel">
                     <div class="panel-header">Start New Task</div>
                     <div class="panel-content">
-                        <form id="parseForm">
+                        <form id="parseForm" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
                             <div class="form-group">
                                 <label for="url">Amazon Product URL</label>
                                 <input 
@@ -31,6 +31,19 @@
                             </div>
 
                             <div class="form-group">
+                                <label for="openai_api_key">OpenAI API Key (для OCR)</label>
+                                <input 
+                                    type="password" 
+                                    id="openai_api_key" 
+                                    name="openai_api_key" 
+                                    placeholder="sk-proj-... (або залиште порожнім, якщо в .env)"
+                                >
+                                <small style="display: block; color: var(--text-secondary); margin-top: 6px; font-size: 0.85rem; line-height: 1.4;">
+                                    Потрібен для розпізнавання тексту з зображень (OCR). Можна вказати тут або в .env файлі.
+                                </small>
+                            </div>
+
+                            <div class="form-group">
                                 <label>Categories to Parse</label>
                                 <div class="checkbox-group">
                                     <div class="checkbox-section">
@@ -40,31 +53,66 @@
                                             <span class="checkmark"></span>
                                             <strong>Select All Images</strong>
                                         </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="images_hero" class="image-checkbox" onchange="updateSelectAllImages()">
-                                            <span class="checkmark"></span>
-                                            Hero Image
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="images_gallery" class="image-checkbox" onchange="updateSelectAllImages()">
-                                            <span class="checkmark"></span>
-                                            Product Gallery
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_product" class="image-checkbox" onchange="updateSelectAllImages()">
-                                            <span class="checkmark"></span>
-                                            A+ Product Description
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_brand" class="image-checkbox" onchange="updateSelectAllImages()">
-                                            <span class="checkmark"></span>
-                                            A+ Brand Story
-                                        </label>
-                                        <label class="checkbox-label">
-                                            <input type="checkbox" name="images_aplus_manufacturer" class="image-checkbox" onchange="updateSelectAllImages()">
-                                            <span class="checkmark"></span>
-                                            A+ From the Manufacturer
-                                        </label>
+                                        <div class="image-ocr-row">
+                                            <label class="checkbox-label" style="flex: 1;">
+                                                <input type="checkbox" name="images_hero" id="images_hero" class="image-checkbox" onchange="updateSelectAllImages(); toggleOCRCheckbox('ocr_hero', this.checked)">
+                                                <span class="checkmark"></span>
+                                                Hero Image
+                                            </label>
+                                            <label class="checkbox-label ocr-sub-checkbox">
+                                                <input type="checkbox" name="ocr_hero" id="ocr_hero" class="ocr-checkbox" disabled onchange="validateOCR()">
+                                                <span class="checkmark"></span>
+                                                <small>OCR</small>
+                                            </label>
+                                        </div>
+                                        <div class="image-ocr-row">
+                                            <label class="checkbox-label" style="flex: 1;">
+                                                <input type="checkbox" name="images_gallery" id="images_gallery" class="image-checkbox" onchange="updateSelectAllImages(); toggleOCRCheckbox('ocr_gallery', this.checked)">
+                                                <span class="checkmark"></span>
+                                                Product Gallery
+                                            </label>
+                                            <label class="checkbox-label ocr-sub-checkbox">
+                                                <input type="checkbox" name="ocr_gallery" id="ocr_gallery" class="ocr-checkbox" disabled onchange="validateOCR()">
+                                                <span class="checkmark"></span>
+                                                <small>OCR</small>
+                                            </label>
+                                        </div>
+                                        <div class="image-ocr-row">
+                                            <label class="checkbox-label" style="flex: 1;">
+                                                <input type="checkbox" name="images_aplus_product" id="images_aplus_product" class="image-checkbox" onchange="updateSelectAllImages(); toggleOCRCheckbox('ocr_aplus_product', this.checked)">
+                                                <span class="checkmark"></span>
+                                                A+ Product Description
+                                            </label>
+                                            <label class="checkbox-label ocr-sub-checkbox">
+                                                <input type="checkbox" name="ocr_aplus_product" id="ocr_aplus_product" class="ocr-checkbox" disabled onchange="validateOCR()">
+                                                <span class="checkmark"></span>
+                                                <small>OCR</small>
+                                            </label>
+                                        </div>
+                                        <div class="image-ocr-row">
+                                            <label class="checkbox-label" style="flex: 1;">
+                                                <input type="checkbox" name="images_aplus_brand" id="images_aplus_brand" class="image-checkbox" onchange="updateSelectAllImages(); toggleOCRCheckbox('ocr_aplus_brand', this.checked)">
+                                                <span class="checkmark"></span>
+                                                A+ Brand Story
+                                            </label>
+                                            <label class="checkbox-label ocr-sub-checkbox">
+                                                <input type="checkbox" name="ocr_aplus_brand" id="ocr_aplus_brand" class="ocr-checkbox" disabled onchange="validateOCR()">
+                                                <span class="checkmark"></span>
+                                                <small>OCR</small>
+                                            </label>
+                                        </div>
+                                        <div class="image-ocr-row">
+                                            <label class="checkbox-label" style="flex: 1;">
+                                                <input type="checkbox" name="images_aplus_manufacturer" id="images_aplus_manufacturer" class="image-checkbox" onchange="updateSelectAllImages(); toggleOCRCheckbox('ocr_aplus_manufacturer', this.checked)">
+                                                <span class="checkmark"></span>
+                                                A+ From the Manufacturer
+                                            </label>
+                                            <label class="checkbox-label ocr-sub-checkbox">
+                                                <input type="checkbox" name="ocr_aplus_manufacturer" id="ocr_aplus_manufacturer" class="ocr-checkbox" disabled onchange="validateOCR()">
+                                                <span class="checkmark"></span>
+                                                <small>OCR</small>
+                                            </label>
+                                        </div>
                                     </div>
                                     <label class="checkbox-label">
                                         <input type="checkbox" name="text">
@@ -90,6 +138,7 @@
                                 <div class="progress-fill" id="progressFill"></div>
                             </div>
                             <p class="progress-text" id="progressText">Starting...</p>
+                            <div id="errorMessages" class="error-messages"></div>
                         </div>
                     </div>
                 </section>
@@ -97,7 +146,8 @@
                 <!-- Right panel: Recent Tasks -->
                 <section class="panel">
                     <div class="panel-header">Recent Tasks</div>
-                    <div class="panel-content tasks-list" id="tasksList">
+                    <div class="panel-content">
+                        <div class="tasks-list" id="tasksList">
                         {% for task in tasks %}
                         <div class="task-item" data-task-id="{{ task.id }}">
                             <div class="task-header">
@@ -126,6 +176,13 @@
                                 <span title="A+ Manufacturer images">A+ Mfr: {{ r.images.aplus_manufacturer if r.images and r.images.aplus_manufacturer else 0 }}</span>
                                 <span title="Reviews">Reviews: {{ r.reviews_count if r.reviews_count else 0 }}</span>
                                 <span title="Q&A pairs">Q&A: {{ r.qa_count if r.qa_count else 0 }}</span>
+                                {% if r.ocr_metrics %}
+                                <span title="OCR processed images">OCR: {{ r.ocr_metrics.processed or 0 }}/{{ r.ocr_metrics.total_images or 0 }} images ({{ r.ocr_metrics.time_seconds or 0 }}s)</span>
+                                <span title="OCR tokens used">OCR: {% if r.ocr_metrics.tokens and r.ocr_metrics.tokens.total_tokens %}{% set t = r.ocr_metrics.tokens.total_tokens %}{% if t >= 1000000 %}{{ "%.1f"|format(t / 1000000) }}M{% elif t >= 1000 %}{{ "%.1f"|format(t / 1000) }}k{% else %}{{ t }}{% endif %}{% else %}0{% endif %} tokens</span>
+                                {% else %}
+                                <span title="OCR processed images">OCR: 0/0 images (0s)</span>
+                                <span title="OCR tokens used">OCR: 0 tokens</span>
+                                {% endif %}
                             </div>
                             {% endif %}
                             {% if task.error_message %}
@@ -135,6 +192,7 @@
                         {% else %}
                         <div class="empty-state">No tasks yet. Start your first parsing!</div>
                         {% endfor %}
+                        </div>
                     </div>
                 </section>
             </div>
@@ -145,7 +203,14 @@
         function toggleAllImages(checkbox) {
             const imageCheckboxes = document.querySelectorAll('.image-checkbox');
             imageCheckboxes.forEach(cb => {
+                const wasChecked = cb.checked;
                 cb.checked = checkbox.checked;
+                // Update corresponding OCR checkbox
+                const imageId = cb.id;
+                if (imageId) {
+                    const ocrId = imageId.replace('images_', 'ocr_');
+                    toggleOCRCheckbox(ocrId, checkbox.checked);
+                }
             });
         }
         
@@ -167,6 +232,34 @@
                 selectAllCheckbox.indeterminate = false;
             }
         }
+        
+        function toggleOCRCheckbox(ocrCheckboxId, enabled) {
+            const ocrCheckbox = document.getElementById(ocrCheckboxId);
+            if (ocrCheckbox) {
+                ocrCheckbox.disabled = !enabled;
+                if (!enabled) {
+                    ocrCheckbox.checked = false;
+                }
+                // Update opacity
+                const ocrLabel = ocrCheckbox.closest('.ocr-sub-checkbox');
+                if (ocrLabel) {
+                    ocrLabel.style.opacity = enabled ? '1' : '0.7';
+                }
+            }
+        }
+        
+        function validateOCR() {
+            const ocrCheckboxes = document.querySelectorAll('.ocr-checkbox:not([disabled])');
+            const apiKeyInput = document.getElementById('openai_api_key');
+            const hasOCRSelected = Array.from(ocrCheckboxes).some(cb => cb.checked);
+            
+            if (hasOCRSelected) {
+                // If OCR is selected, make API key field more visible (optional validation)
+                apiKeyInput.style.borderColor = '#ff9800';
+            } else {
+                apiKeyInput.style.borderColor = '';
+            }
+        }
         const parseForm = document.getElementById('parseForm');
         const submitBtn = document.getElementById('submitBtn');
         const progressSection = document.getElementById('progressSection');
@@ -180,11 +273,15 @@
         parseForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Note: API key validation is done on backend (checks both form and .env file)
+            // Frontend validation removed to allow .env file usage
+            
             const formData = new FormData(parseForm);
             
             try {
                 submitBtn.disabled = true;
                 submitBtn.textContent = 'Starting...';
+                submitBtn.style.display = 'none'; // Hide button when progress starts
                 
                 const response = await fetch('/start_parsing', {
                     method: 'POST',
@@ -197,6 +294,7 @@
                     alert('Error: ' + data.error);
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Start Parsing';
+                    submitBtn.style.display = 'block'; // Show button on error
                     return;
                 }
                 
@@ -233,6 +331,28 @@
                         progressText.textContent = data.progress_message;
                     }
                     
+                    // Display OCR metrics and errors
+                    const errorMessagesDiv = document.getElementById('errorMessages');
+                    let messagesHtml = '';
+                    
+                    // Display OCR metrics if available
+                    if (data.results && data.results.ocr_metrics) {
+                        const metrics = data.results.ocr_metrics;
+                        const statusClass = metrics.failed > 0 ? 'warning' : 'success';
+                        messagesHtml += `<div class="ocr-metrics ${statusClass}">OCR: ${metrics.processed}/${metrics.total_images} images (${metrics.time_seconds}s)${metrics.failed > 0 ? `, ${metrics.failed} failed` : ''}</div>`;
+                    }
+                    
+                    // Display errors if any
+                    if (data.results && data.results.errors && data.results.errors.length > 0) {
+                        const errorItems = data.results.errors
+                            .filter(err => err && err.trim())
+                            .map(err => `<div class="error-item">${err}</div>`)
+                            .join('');
+                        messagesHtml += errorItems;
+                    }
+                    
+                    errorMessagesDiv.innerHTML = messagesHtml;
+                    
                     // Check if task is complete
                     if (data.status === 'completed' || data.status === 'failed') {
                         clearInterval(pollInterval);
@@ -253,11 +373,13 @@
                         // Refresh task list
                         refreshTaskList();
                         
-                        // Hide progress after delay
+                        // Hide progress after delay and show button again
                         setTimeout(() => {
                             progressSection.classList.add('hidden');
                             progressFill.classList.remove('success', 'error');
-                        }, 3000);
+                            errorMessagesDiv.innerHTML = '';
+                            submitBtn.style.display = 'block'; // Show button again
+                        }, 5000);
                     }
                     
                 } catch (error) {
@@ -312,6 +434,18 @@
                             <span title="A+ Manufacturer images">A+ Mfr: ${aplus_manufacturer}</span>
                             <span title="Reviews">Reviews: ${task.results.reviews_count || 0}</span>
                             <span title="Q&A pairs">Q&A: ${task.results.qa_count || 0}</span>
+                            ${task.results.ocr_metrics ? `
+                            <span title="OCR processed images">OCR: ${task.results.ocr_metrics.processed || 0}/${task.results.ocr_metrics.total_images || 0} images (${task.results.ocr_metrics.time_seconds || 0}s)</span>
+                            <span title="OCR tokens used">OCR: ${(() => {
+                                const tokens = task.results.ocr_metrics.tokens && task.results.ocr_metrics.tokens.total_tokens ? task.results.ocr_metrics.tokens.total_tokens : 0;
+                                if (tokens >= 1000000) return (tokens / 1000000).toFixed(1) + 'M';
+                                if (tokens >= 1000) return (tokens / 1000).toFixed(1) + 'k';
+                                return tokens;
+                            })()} tokens</span>
+                            ` : `
+                            <span title="OCR processed images">OCR: 0/0 images (0s)</span>
+                            <span title="OCR tokens used">OCR: 0 tokens</span>
+                            `}
                         </div>
                         ` : ''}
                         ${task.error_message ? `

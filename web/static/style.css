@@ -28,35 +28,53 @@ body {
     background: var(--bg-primary);
     color: var(--text-primary);
     min-height: 100vh;
+    max-height: 100vh;
+    overflow: hidden;
     line-height: 1.5;
 }
 
 .container {
-    max-width: 1400px;
+    max-width: 1000px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 12px 16px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 header {
     text-align: center;
-    margin-bottom: 40px;
-    padding: 20px 0;
+    margin-bottom: 12px;
+    padding: 8px 0;
+    flex-shrink: 0;
 }
 
 header h1 {
-    font-size: 2.5rem;
-    font-weight: 800;
+    font-size: 1.5rem;
+    font-weight: 700;
     background: linear-gradient(135deg, var(--accent-primary), var(--accent-success));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
     letter-spacing: -0.02em;
+    margin: 0;
+}
+
+main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 24px;
+    gap: 12px;
+    align-items: stretch;
+    height: 100%;
+    overflow: hidden;
 }
 
 @media (max-width: 900px) {
@@ -72,66 +90,143 @@ header h1 {
     border: 1px solid var(--border-color);
     overflow: hidden;
     box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .panel-header {
     background: var(--bg-tertiary);
-    padding: 16px 20px;
+    padding: 10px 14px;
     font-weight: 600;
-    font-size: 1.1rem;
+    font-size: 0.9rem;
     border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
+    flex-shrink: 0;
 }
 
 .panel-content {
-    padding: 20px;
+    padding: 12px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-height: 0;
+}
+
+.panel-content form {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    gap: 10px;
+}
+
+/* Keep input fields always visible - they are key elements */
+.panel-content form .form-group:first-child,
+.panel-content form .form-group:nth-child(2) {
+    flex-shrink: 0;
+}
+
+.panel-content form .checkbox-group {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    padding-right: 4px;
+}
+
+.panel-content form .checkbox-group::-webkit-scrollbar {
+    width: 6px;
+}
+
+.panel-content form .checkbox-group::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.panel-content form .checkbox-group::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.panel-content form::-webkit-scrollbar {
+    width: 6px;
+}
+
+.panel-content form::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.panel-content form::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.panel-content form::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
 /* Form */
 .form-group {
-    margin-bottom: 20px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.form-group:last-child {
+    margin-bottom: 0;
 }
 
 .form-group label {
     display: block;
-    margin-bottom: 8px;
-    font-weight: 500;
-    color: var(--text-secondary);
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-size: 0.9rem;
 }
 
-input[type="url"] {
+input[type="url"],
+input[type="password"] {
     width: 100%;
-    padding: 14px 16px;
+    padding: 10px 12px;
     background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
+    border: 2px solid var(--border-color);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
-    font-size: 1rem;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+    box-sizing: border-box;
 }
 
-input[type="url"]:focus {
+input[type="url"]:focus,
+input[type="password"]:focus {
     outline: none;
     border-color: var(--accent-primary);
-    box-shadow: 0 0 0 3px rgba(29, 155, 240, 0.2);
+    box-shadow: 0 0 0 4px rgba(29, 155, 240, 0.15);
+    background: var(--bg-secondary);
 }
 
-input[type="url"]::placeholder {
+input[type="url"]:hover,
+input[type="password"]:hover {
+    border-color: var(--accent-primary);
+}
+
+input[type="url"]::placeholder,
+input[type="password"]::placeholder {
     color: var(--text-muted);
+    opacity: 0.7;
 }
 
 /* Checkboxes */
 .checkbox-group {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 8px;
 }
 
 .checkbox-section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px;
+    gap: 4px;
+    padding: 8px;
     background: var(--bg-tertiary);
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-color);
@@ -150,13 +245,14 @@ input[type="url"]::placeholder {
 .checkbox-label {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
     cursor: pointer;
-    padding: 12px 16px;
-    background: var(--bg-tertiary);
+    padding: 6px 10px;
+    background: var(--bg-primary);
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
     transition: border-color 0.2s, background 0.2s;
+    font-size: 0.85rem;
 }
 
 .checkbox-label:hover {
@@ -186,15 +282,39 @@ input[type="url"]::placeholder {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: white;
-    font-size: 12px;
-    font-weight: bold;
+}
+
+.image-ocr-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+
+.ocr-sub-checkbox {
+    flex-shrink: 0;
+    padding: 8px 12px !important;
+    margin-left: auto !important;
+}
+
+.ocr-sub-checkbox small {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.checkbox-label input[type="checkbox"]:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Button */
 .btn-primary {
     width: 100%;
-    padding: 16px;
+    max-width: 400px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 15px;
     background: linear-gradient(135deg, var(--accent-primary), #1a8cd8);
     color: white;
     border: none;
@@ -203,6 +323,14 @@ input[type="url"]::placeholder {
     font-weight: 600;
     cursor: pointer;
     transition: transform 0.2s, box-shadow 0.2s, opacity 0.2s;
+    margin-top: -20px;
+    flex-shrink: 0;
+}
+
+/* Hide button when progress section is visible */
+.progress-section:not(.hidden) ~ form .btn-primary,
+form:has(.progress-section:not(.hidden)) .btn-primary {
+    display: none !important;
 }
 
 .btn-primary:hover {
@@ -224,7 +352,7 @@ input[type="url"]::placeholder {
 .progress-section {
     margin-top: 20px;
     padding-top: 20px;
-    border-top: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .progress-section.hidden {
@@ -233,9 +361,11 @@ input[type="url"]::placeholder {
 
 .progress-bar {
     height: 8px;
+    min-height: 8px;
     background: var(--bg-tertiary);
     border-radius: 4px;
     overflow: hidden;
+    flex-shrink: 0;
 }
 
 .progress-fill {
@@ -261,29 +391,77 @@ input[type="url"]::placeholder {
     text-align: center;
 }
 
+.error-messages {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    display: none;
+}
+
+.error-messages:not(:empty) {
+    display: block;
+}
+
+.ocr-metrics {
+    padding: 8px 12px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.ocr-metrics.success {
+    background: rgba(0, 186, 124, 0.1);
+    border-left: 3px solid var(--accent-success);
+    color: var(--accent-success);
+}
+
+.ocr-metrics.warning {
+    background: rgba(255, 173, 31, 0.1);
+    border-left: 3px solid var(--accent-warning);
+    color: var(--accent-warning);
+}
+
+.error-messages .error-item {
+    margin: 4px 0;
+    padding: 8px 12px;
+    background: rgba(220, 53, 69, 0.1);
+    border-left: 3px solid var(--accent-error);
+    border-radius: 4px;
+    color: var(--accent-error);
+    line-height: 1.4;
+}
+
 /* Tasks List */
 .tasks-list {
-    max-height: 600px;
+    flex: 1;
     overflow-y: auto;
+    min-height: 0;
+    padding-right: 4px;
+    max-height: 100%;
 }
 
 .tasks-list::-webkit-scrollbar {
-    width: 8px;
+    width: 6px;
 }
 
 .tasks-list::-webkit-scrollbar-track {
-    background: var(--bg-tertiary);
+    background: transparent;
 }
 
 .tasks-list::-webkit-scrollbar-thumb {
     background: var(--border-color);
-    border-radius: 4px;
+    border-radius: 3px;
+}
+
+.tasks-list::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
 }
 
 .task-item {
-    padding: 16px;
+    padding: 12px;
     border-bottom: 1px solid var(--border-color);
     transition: background 0.2s;
+    font-size: 0.85rem;
 }
 
 .task-item:last-child {

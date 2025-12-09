@@ -202,6 +202,29 @@ class Coordinator:
                     logger.error(f"Image parsing failed: {e}")
                     self.results['errors'].append(f"Image parsing: {str(e)}")
                 current_progress += 20
+                
+                # Process OCR for images if requested
+                has_ocr_selected = any([
+                    config.get('ocr_hero', False),
+                    config.get('ocr_gallery', False),
+                    config.get('ocr_aplus_product', False),
+                    config.get('ocr_aplus_brand', False),
+                    config.get('ocr_aplus_manufacturer', False),
+                ])
+                
+                if has_ocr_selected:
+                    api_key = config.get('openai_api_key', '')
+                    if api_key:
+                        try:
+                            self._update_progress('Processing OCR for images...', current_progress)
+                            self._process_ocr_for_images(config, api_key)
+                            current_progress += 5
+                        except Exception as e:
+                            logger.error(f"OCR processing failed: {e}")
+                            self.results['errors'].append(f"OCR processing: {str(e)}")
+                    else:
+                        logger.warning("OCR requested but no API key provided")
+                        self.results['errors'].append("OCR requested but no API key provided")
             
             # Parse reviews in parallel (Q&A is now part of text parsing)
             if config.get('reviews', False):
@@ -409,79 +432,10 @@ class Coordinator:
         logger.error(f"All {max_retries} attempts failed")
         return {'errors': [str(last_error)]}
     
-    def _run_image_agents(self, config: Dict):
-        """Parse a single variant."""
-        results = {}
-        
-        # Text
-        text_agent = TextParserAgent(self.browser_pool, self.dom_soup)
-        results['text'] = self._run_with_retry(text_agent.parse)
-        
-        # Images - use same logic as main parsing
-        if any([
-            config.get('images_hero', False),
-            config.get('images_gallery', False),
-            config.get('images_aplus_product', False),
-            config.get('images_aplus_brand', False),
-        ]):
-            images_result = {
-                'hero': [],
-                'gallery': [],
-                'aplus_product': [],
-                'aplus_brand': [],
-                'aplus_manufacturer': [],
-                'total_images': 0,
-                'errors': []
-            }
-            md5_cache = set()
-            hero_url = None
-            
-            if config.get('images_hero', False):
-                hero_parser = HeroParser(self.browser_pool, md5_cache)
-                hero_images, hero_url = self._run_with_retry(hero_parser.parse, output_dir)
-                images_result['hero'] = hero_images
-            
-            if config.get('images_gallery', False):
-                gallery_parser = GalleryParser(self.browser_pool, md5_cache)
-                gallery_images = self._run_with_retry(gallery_parser.parse, output_dir, hero_url)
-                images_result['gallery'] = gallery_images
-            
-            if config.get('images_aplus_product', False):
-                aplus_product_parser = APlusProductParser(self.browser_pool, md5_cache)
-                aplus_product_images = self._run_with_retry(aplus_product_parser.parse, output_dir)
-                images_result['aplus_product'] = aplus_product_images
-            
-            if config.get('images_aplus_brand', False):
-                aplus_brand_parser = APlusBrandParser(self.browser_pool, md5_cache)
-                aplus_brand_images = self._run_with_retry(aplus_brand_parser.parse, output_dir)
-                images_result['aplus_brand'] = aplus_brand_images
-            
-            if config.get('images_aplus_manufacturer', False):
-                aplus_manufacturer_parser = APlusManufacturerParser(self.browser_pool, md5_cache)
-                aplus_manufacturer_images = self._run_with_retry(aplus_manufacturer_parser.parse, output_dir)
-                images_result['aplus_manufacturer'] = aplus_manufacturer_images
-            
-            images_result['total_images'] = (
-                len(images_result['hero']) +
-                len(images_result['gallery']) +
-                len(images_result['aplus_product']) +
-                len(images_result['aplus_brand']) +
-                len(images_result['aplus_manufacturer'])
-            )
-            results['images'] = images_result
-        
-        # Reviews
-        if config.get('reviews', False):
-            reviews_agent = ReviewsParserAgent(self.browser_pool)
-            results['reviews'] = self._run_with_retry(
-                reviews_agent.parse, 
-                output_dir, 
-                config.get('max_reviews', 10)
-            )
-        
-        # Q&A is now parsed as part of text parsing (Product Description)
-        
-        return results
+    def _run_image_agents_legacy(self, config: Dict):
+        """Legacy method - not used, kept for reference."""
+        # This method is not used, the actual implementation is in _run_image_agents below
+        pass
     
     def _run_image_agents(self, config: Dict):
         """Run image parsing agents based on config."""
@@ -648,6 +602,156 @@ class Coordinator:
         # Q&A is now parsed as part of Product Description in text_parser
         pass
     
+    def _process_ocr_for_images(self, config: Dict, api_key: str):
+        """
+        Process OCR for images using OpenAI Vision API.
+        
+        Args:
+            config: Configuration with OCR checkboxes
+            api_key: OpenAI API key
+        """
+        if not self.output_dir:
+            logger.warning("No output directory, skipping OCR")
+            return
+        
+        try:
+            from utils.ocr_service import OCRService
+            
+            # Initialize OCR service
+            ocr_service = OCRService(api_key)
+            
+            # Mapping: folder name -> OCR checkbox name
+            folder_to_ocr_mapping = {
+                'hero': 'ocr_hero',
+                'product': 'ocr_gallery',
+                'aplus_product': 'ocr_aplus_product',
+                'aplus_brand': 'ocr_aplus_brand',
+                'aplus_manufacturer': 'ocr_aplus_manufacturer',
+            }
+            
+            # Mapping: folder -> image checkbox (to verify images were actually downloaded)
+            folder_to_image_mapping = {
+                'hero': 'images_hero',
+                'product': 'images_gallery',
+                'aplus_product': 'images_aplus_product',
+                'aplus_brand': 'images_aplus_brand',
+                'aplus_manufacturer': 'images_aplus_manufacturer',
+            }
+            
+            # Collect images to process
+            images_to_process = []
+            base_path = Path(self.output_dir)
+            
+            for folder_name, ocr_checkbox in folder_to_ocr_mapping.items():
+                # Check if OCR is enabled for this folder
+                if not config.get(ocr_checkbox, False):
+                    continue
+                
+                # IMPORTANT: Also check if images were actually downloaded for this category
+                image_checkbox = folder_to_image_mapping.get(folder_name)
+                if image_checkbox and not config.get(image_checkbox, False):
+                    logger.debug(f"OCR enabled for {folder_name}, but images not downloaded (checkbox {image_checkbox} not selected), skipping OCR")
+                    continue
+                
+                # Check if folder exists and has images
+                folder_path = base_path / folder_name
+                if not folder_path.exists():
+                    logger.debug(f"Folder {folder_name} does not exist, skipping OCR")
+                    continue
+                
+                # Find all images in folder
+                import glob
+                img_files = glob.glob(str(folder_path / "*.*"))
+                img_files = [f for f in img_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+                
+                if not img_files:
+                    logger.debug(f"No images found in {folder_name}, skipping OCR")
+                    continue
+                
+                # Add images to process list with relative path as key
+                for img_path in img_files:
+                    img_path_obj = Path(img_path)
+                    try:
+                        relative_path = str(img_path_obj.relative_to(base_path))
+                        images_to_process.append((img_path_obj, relative_path))
+                    except:
+                        # Fallback: use folder/filename format
+                        relative_path = f"{folder_name}/{img_path_obj.name}"
+                        images_to_process.append((img_path_obj, relative_path))
+            
+            if not images_to_process:
+                logger.info("No images to process for OCR")
+                self.results['ocr_data'] = {}
+                return
+            
+            import time
+            ocr_start = time.time()
+            logger.info(f"Processing OCR for {len(images_to_process)} images...")
+            
+            # Process images in batches
+            image_paths = [img_path for img_path, _ in images_to_process]
+            ocr_results = ocr_service.process_image_batch(image_paths, batch_size=5)
+            
+            # Extract metadata from results (tokens, etc.)
+            # Metadata is stored in _metadata key in the results dict
+            ocr_metadata = {}
+            if isinstance(ocr_results, dict) and '_metadata' in ocr_results:
+                ocr_metadata = ocr_results.pop('_metadata', {})
+            
+            # Map results to relative paths
+            ocr_data = {}
+            failed_count = 0
+            for img_path_obj, relative_path in images_to_process:
+                # Try to find result using absolute path
+                result = ocr_results.get(str(img_path_obj))
+                if not result:
+                    # Try with resolved path
+                    result = ocr_results.get(str(img_path_obj.resolve()))
+                
+                if result:
+                    ocr_data[relative_path] = result
+                else:
+                    failed_count += 1
+                    logger.debug(f"No OCR result for {relative_path}")
+            
+            ocr_elapsed = time.time() - ocr_start
+            self.results['ocr_data'] = ocr_data
+            
+            # Extract token usage from OCR results metadata
+            ocr_tokens = ocr_metadata.get('total_tokens', {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0})
+            
+            self.results['ocr_metrics'] = {
+                'total_images': len(images_to_process),
+                'processed': len(ocr_data),
+                'failed': failed_count,
+                'time_seconds': round(ocr_elapsed, 1),
+                'tokens': ocr_tokens
+            }
+            logger.info(f"✓ OCR: {len(ocr_data)}/{len(images_to_process)} images ({ocr_elapsed:.1f}s, {ocr_tokens['total_tokens']} tokens)")
+            if failed_count > 0:
+                error_msg = f"OCR: {failed_count} images failed to process"
+                logger.warning(error_msg)
+                if 'errors' not in self.results:
+                    self.results['errors'] = []
+                self.results['errors'].append(error_msg)
+            
+        except ImportError as e:
+            error_msg = "OCR service unavailable: openai library not installed"
+            logger.error(error_msg)
+            if 'errors' not in self.results:
+                self.results['errors'] = []
+            self.results['errors'].append(error_msg)
+            self.results['ocr_data'] = {}
+            self.results['ocr_metrics'] = {'total_images': 0, 'processed': 0, 'failed': 0, 'time_seconds': 0}
+        except Exception as e:
+            error_msg = f"OCR processing failed: {str(e)[:100]}"
+            logger.error(error_msg)
+            if 'errors' not in self.results:
+                self.results['errors'] = []
+            self.results['errors'].append(error_msg)
+            self.results['ocr_data'] = {}
+            self.results['ocr_metrics'] = {'total_images': 0, 'processed': 0, 'failed': 0, 'time_seconds': 0}
+    
     def _run_validation(self, config: Dict = None):
         """Run validation agent."""
         agent = ValidatorAgent()
@@ -737,7 +841,8 @@ class Coordinator:
             'processing_time_seconds': round(processing_time, 2),
             'processing_time_formatted': self._format_processing_time(processing_time),
             'performance_metrics': self.performance_metrics if Settings.PERFORMANCE_LOGGING else {},
-            'errors': self.results.get('errors', [])
+            'errors': self.results.get('errors', []),
+            'ocr_metrics': self.results.get('ocr_metrics', {'total_images': 0, 'processed': 0, 'failed': 0, 'time_seconds': 0, 'tokens': {'total_tokens': 0}})
         }
         
         return summary

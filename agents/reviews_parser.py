@@ -50,12 +50,8 @@ class ReviewsParserAgent(BaseParser):
             # Parse detailed reviews
             results['reviews'] = self.parse_review_details(max_reviews)
             
-            # Parse review images carousel
-            results['review_images'] = self.parse_review_images(output_dir)
-            
             logger.info(
-                f"Reviews parsing complete: {len(results['reviews'])} reviews, "
-                f"{len(results['review_images'])} images"
+                f"Reviews parsing complete: {len(results['reviews'])} reviews"
             )
             
         except Exception as e:
@@ -379,52 +375,3 @@ class ReviewsParserAgent(BaseParser):
             return 'sponsored' in html or 'advertisement' in html
         except Exception:
             return False
-    
-    def parse_review_images(self, output_dir: str) -> List[str]:
-        """
-        Parse images from "Reviews with images" carousel.
-        
-        Args:
-            output_dir: Directory to save images
-            
-        Returns:
-            List of saved image paths
-        """
-        saved_images = []
-        images_dir = Path(output_dir) / 'QAImages'
-        
-        driver = self.browser.get_driver()
-        
-        try:
-            # Find review images carousel
-            carousel = driver.find_element(
-                By.CSS_SELECTOR,
-                '#cm-cr-dp-review-images-carousel, [data-hook="cr-media-gallery-images"]'
-            )
-            
-            self.browser.scroll_to_element(carousel)
-            # No delay needed - scroll_to_element now waits for element visibility
-            
-            # Find all images in carousel
-            images = carousel.find_elements(By.TAG_NAME, 'img')
-            
-            # Create folder only if we have images
-            if images:
-                images_dir.mkdir(parents=True, exist_ok=True)
-            
-            for i, img in enumerate(images):
-                try:
-                    url = img.get_attribute('src')
-                    if url and not is_excluded_url(url):
-                        url = get_high_res_url(url)
-                        output_path = images_dir / f'review{i + 1}.jpg'
-                        if save_image_with_dedup(url, str(output_path), self.md5_cache):
-                            saved_images.append(str(output_path))
-                except Exception as e:
-                    logger.debug(f"Failed to save review image {i}: {e}")
-                    
-        except NoSuchElementException:
-            logger.debug("No review images carousel found")
-        
-        return saved_images
-

@@ -1,6 +1,9 @@
 """Browser pool management for Amazon Parser"""
 import random
 import time
+import subprocess
+import platform
+import re
 from typing import Optional
 
 import undetected_chromedriver as uc
@@ -21,6 +24,74 @@ class BrowserPool:
     def __init__(self):
         self._driver: Optional[uc.Chrome] = None
         self._user_agent: str = random.choice(Settings.USER_AGENTS)
+    
+    def _get_chrome_version(self) -> Optional[int]:
+        """
+        Get Chrome browser version (major version number).
+        
+        Returns:
+            Major version number (e.g., 142) or None if cannot determine
+        """
+        try:
+            if platform.system() == 'Windows':
+                # Try to get version from registry
+                try:
+                    import winreg
+                    key = winreg.OpenKey(
+                        winreg.HKEY_CURRENT_USER,
+                        r"Software\Google\Chrome\BLBeacon"
+                    )
+                    version = winreg.QueryValueEx(key, "version")[0]
+                    winreg.CloseKey(key)
+                    # Extract major version (e.g., "142.0.7444.176" -> 142)
+                    match = re.search(r'^(\d+)', version)
+                    if match:
+                        return int(match.group(1))
+                except ImportError:
+                    # winreg not available (shouldn't happen on Windows, but just in case)
+                    pass
+                except Exception:
+                    # Registry method failed, try executable
+                    pass
+                
+                # Try alternative method: check Chrome executable
+                chrome_paths = [
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                ]
+                for chrome_path in chrome_paths:
+                    try:
+                        result = subprocess.run(
+                            [chrome_path, '--version'],
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if result.returncode == 0:
+                            match = re.search(r'(\d+)\.\d+\.\d+', result.stdout)
+                            if match:
+                                return int(match.group(1))
+                    except Exception:
+                        continue
+            else:
+                # Linux/Mac: use command line
+                try:
+                    result = subprocess.run(
+                        ['google-chrome', '--version'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        match = re.search(r'(\d+)\.\d+\.\d+', result.stdout)
+                        if match:
+                            return int(match.group(1))
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.debug(f"Could not determine Chrome version: {e}")
+        
+        return None
     
     def get_driver(self) -> uc.Chrome:
         """
@@ -76,7 +147,18 @@ class BrowserPool:
         # Images (image/png, image/jpeg, image/webp) will load normally
         
         try:
-            self._driver = uc.Chrome(options=options)
+            # Try to get Chrome version to ensure ChromeDriver compatibility
+            chrome_version = self._get_chrome_version()
+            if chrome_version:
+                logger.info(f"Detected Chrome version: {chrome_version}")
+                # Let undetected_chromedriver automatically download matching ChromeDriver
+                # by passing version_main parameter
+                self._driver = uc.Chrome(options=options, version_main=chrome_version)
+            else:
+                # If we can't determine version, let undetected_chromedriver auto-detect
+                logger.info("Auto-detecting Chrome version for ChromeDriver...")
+                self._driver = uc.Chrome(options=options)
+            
             # With page_load_strategy="none", we don't need long timeout
             self._driver.set_page_load_timeout(30)  # Fallback timeout
             self._driver.implicitly_wait(0.5)  # Reduced implicit wait for faster fallback
@@ -88,8 +170,26 @@ class BrowserPool:
             return self._driver
             
         except WebDriverException as e:
-            logger.error(f"Failed to initialize browser: {e}")
-            raise
+            error_msg = str(e)
+            # If version mismatch error, try without version_main to let library auto-detect
+            if "version" in error_msg.lower() or "chrome version" in error_msg.lower():
+                logger.warning("Version mismatch detected, retrying with auto-detection...")
+                try:
+                    # Clear any cached driver
+                    self._driver = None
+                    # Retry without version_main to let undetected_chromedriver auto-detect
+                    self._driver = uc.Chrome(options=options)
+                    self._driver.set_page_load_timeout(30)
+                    self._driver.implicitly_wait(0.5)
+                    self._driver.set_window_size(Settings.WINDOW_WIDTH, Settings.WINDOW_HEIGHT)
+                    logger.info(f"Browser initialized with auto-detection (headless: {Settings.HEADLESS})")
+                    return self._driver
+                except Exception as retry_error:
+                    logger.error(f"Retry failed: {retry_error}")
+                    raise
+            else:
+                logger.error(f"Failed to initialize browser: {e}")
+                raise
     
     def close_driver(self):
         """Close the browser driver."""

@@ -446,7 +446,6 @@ class DocxGenerator:
             ('aplus_brand', 'A+ Content - From the Brand'),
             ('aplus_product', 'A+ Content - Product Description'),
             ('aplus_manufacturer', 'A+ Content - From the Manufacturer'),
-            ('QAImages', 'Review Images'),
         ]
         
         # Collect all images with their order
@@ -572,6 +571,74 @@ class DocxGenerator:
                         logger.debug(f"Added alt text to DOCX: {alt_text[:150]}...")
                     else:
                         logger.debug(f"No alt text found for {img_path_obj.name}")
+                    
+                    # Add OCR data if available
+                    ocr_data = None
+                    if hasattr(self, 'results') and self.results:
+                        ocr_results = self.results.get('ocr_data', {})
+                        
+                        # Try multiple path variants to find OCR data
+                        path_variants = [
+                            img_info.get('relative_path', img_path_obj.name),  # Relative from output_dir
+                            f"{img_info['folder']}/{img_path_obj.name}",  # With folder prefix
+                            str(img_path_obj.relative_to(base_path)) if base_path.exists() else None,  # Relative path
+                            img_path_obj.name,  # Just filename
+                        ]
+                        
+                        # Remove None values
+                        path_variants = [p for p in path_variants if p]
+                        
+                        # Try each path variant
+                        for path_variant in path_variants:
+                            if path_variant in ocr_results:
+                                ocr_data = ocr_results[path_variant]
+                                break
+                    
+                    # Add OCR TEXT block if available
+                    if ocr_data and ocr_data.get('ocr_text'):
+                        ocr_text = ocr_data['ocr_text']
+                        if ocr_text and ocr_text.strip() and ocr_text.strip() != "Немає маркетингового тексту":
+                            # OCR TEXT label
+                            ocr_label_para = self.doc.add_paragraph()
+                            ocr_label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                            ocr_label_run = ocr_label_para.add_run("OCR TEXT:")
+                            ocr_label_run.font.bold = True
+                            ocr_label_run.font.size = Pt(10)
+                            
+                            # OCR text content
+                            ocr_text_para = self.doc.add_paragraph()
+                            ocr_text_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                            ocr_text_run = ocr_text_para.add_run(ocr_text.strip())
+                            ocr_text_run.font.size = Pt(9)
+                            ocr_text_run.font.bold = False
+                    
+                    # Add VISUAL block if available
+                    if ocr_data and ocr_data.get('visual'):
+                        visual_text = ocr_data['visual']
+                        if visual_text and visual_text.strip():
+                            # VISUAL label
+                            visual_label_para = self.doc.add_paragraph()
+                            visual_label_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                            visual_label_run = visual_label_para.add_run("VISUAL:")
+                            visual_label_run.font.bold = True
+                            visual_label_run.font.size = Pt(10)
+                            
+                            # VISUAL content - parse bullet points
+                            visual_lines = visual_text.strip().split('\n')
+                            for line in visual_lines:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                
+                                # Ensure line starts with dash for bullet point
+                                if not line.startswith('-'):
+                                    line = f"- {line}"
+                                
+                                # Add as bullet point
+                                visual_item_para = self.doc.add_paragraph(style='List Bullet')
+                                visual_item_run = visual_item_para.add_run(line.lstrip('- ').strip())
+                                visual_item_run.font.size = Pt(9)
+                                visual_item_run.font.bold = False
                     
                     # Add spacing after image
                     self.doc.add_paragraph()

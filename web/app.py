@@ -77,6 +77,17 @@ def start_parsing():
             response.headers['Connection'] = 'close'
             return response, 400
         
+        # Get OpenAI API key (from form or .env)
+        openai_api_key = request.form.get('openai_api_key', '').strip()
+        key_source = 'form'
+        if not openai_api_key:
+            # Try to get from environment
+            from config.settings import Settings
+            openai_api_key = Settings.OPENAI_API_KEY
+            key_source = '.env file' if openai_api_key else 'none'
+        
+        logger.debug(f"OpenAI API key source: {key_source}, has key: {bool(openai_api_key)}")
+        
         # Build config from checkboxes
         config = {
             'images_hero': request.form.get('images_hero') == 'on',
@@ -86,7 +97,31 @@ def start_parsing():
             'images_aplus_manufacturer': request.form.get('images_aplus_manufacturer') == 'on',
             'text': request.form.get('text') == 'on',
             'reviews': request.form.get('reviews') == 'on',
+            # OCR checkboxes
+            'ocr_hero': request.form.get('ocr_hero') == 'on',
+            'ocr_gallery': request.form.get('ocr_gallery') == 'on',
+            'ocr_aplus_product': request.form.get('ocr_aplus_product') == 'on',
+            'ocr_aplus_brand': request.form.get('ocr_aplus_brand') == 'on',
+            'ocr_aplus_manufacturer': request.form.get('ocr_aplus_manufacturer') == 'on',
+            # OpenAI API key
+            'openai_api_key': openai_api_key,
         }
+        
+        # Validate OCR: if any OCR checkbox is selected, API key is required
+        has_ocr_selected = any([
+            config['ocr_hero'],
+            config['ocr_gallery'],
+            config['ocr_aplus_product'],
+            config['ocr_aplus_brand'],
+            config['ocr_aplus_manufacturer'],
+        ])
+        
+        if has_ocr_selected and not openai_api_key:
+            error_msg = 'Для використання OCR потрібен OpenAI API ключ. Введіть ключ у форму або додайте його в .env файл (OPENAI_API_KEY=...).'
+            logger.warning(f"OCR requested but no API key found (checked form and .env)")
+            response = jsonify({'error': error_msg})
+            response.headers['Connection'] = 'close'
+            return response, 400
         
         # Validate that at least one option is selected
         has_images = any([

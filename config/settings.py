@@ -95,4 +95,10 @@ class Settings:
     
     # Performance logging
     PERFORMANCE_LOGGING: bool = os.getenv('AMAZON_PARSER_PERFORMANCE_LOGGING', 'true').lower() == 'true'
+    
+    # OpenAI settings (for OCR functionality)
+    OPENAI_API_KEY: str = os.getenv('OPENAI_API_KEY', '')
+    OPENAI_MODEL: str = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+    OPENAI_MAX_RETRIES: int = int(os.getenv('OPENAI_MAX_RETRIES', '3'))
+    OPENAI_TIMEOUT: int = int(os.getenv('OPENAI_TIMEOUT', '60'))
 
